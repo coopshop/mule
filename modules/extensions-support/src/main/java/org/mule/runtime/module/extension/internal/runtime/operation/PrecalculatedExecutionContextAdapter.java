@@ -16,6 +16,7 @@ import org.mule.runtime.extension.api.runtime.Interceptable;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationState;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationStats;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
 import org.mule.runtime.extension.api.runtime.operation.Interceptor;
@@ -55,7 +56,7 @@ class PrecalculatedExecutionContextAdapter<T extends ComponentModel> extends Abs
     return configuration;
   }
 
-  public ComponentExecutor getOperationExecutor() {
+  public CompletableComponentExecutor getOperationExecutor() {
     return operation;
   }
 

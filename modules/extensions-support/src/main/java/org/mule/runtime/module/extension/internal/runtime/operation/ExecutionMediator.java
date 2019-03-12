@@ -7,11 +7,13 @@
 package org.mule.runtime.module.extension.internal.runtime.operation;
 
 import org.mule.runtime.api.meta.model.ComponentModel;
-import org.mule.runtime.extension.api.runtime.operation.Interceptor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.Interceptor;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 
-import org.reactivestreams.Publisher;
+import java.util.concurrent.CompletableFuture;
+
 import reactor.core.publisher.Mono;
 
 /**
@@ -34,5 +36,5 @@ public interface ExecutionMediator<T extends ComponentModel> {
    * @param context an {@link ExecutionContextAdapter}
    * @return a {@link Mono} with the operation's result
    */
-  Publisher<Object> execute(ComponentExecutor<T> executor, ExecutionContextAdapter<T> context);
+  CompletableFuture<Object> execute(CompletableComponentExecutor<T> executor, ExecutionContextAdapter<T> context);
 }
