@@ -11,16 +11,20 @@ import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.disposeIfNeeded
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.initialiseIfNeeded;
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.startIfNeeded;
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.stopIfNeeded;
+import static org.mule.runtime.core.api.rx.Exceptions.wrapFatal;
+import static org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextProperties.COMPLETION_CALLBACK_CONTEXT_PARAM;
 import static org.slf4j.LoggerFactory.getLogger;
 import org.mule.runtime.api.exception.MuleException;
 import org.mule.runtime.api.lifecycle.InitialisationException;
+import org.mule.runtime.api.lifecycle.Lifecycle;
 import org.mule.runtime.api.meta.model.ComponentModel;
+import org.mule.runtime.core.api.MuleContext;
+import org.mule.runtime.core.api.context.MuleContextAware;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
-import org.mule.runtime.extension.api.runtime.operation.Interceptor;
-import org.mule.runtime.module.extension.internal.loader.AbstractInterceptable;
+import org.mule.runtime.extension.api.runtime.process.CompletionCallback;
+import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -28,82 +32,67 @@ import java.util.function.Function;
 import org.slf4j.Logger;
 
 /**
- * Decorates an {@link CompletableComponentExecutor} adding the behavior defined in {@link AbstractInterceptable}.
+ * Decorates an {@link CompletableComponentExecutor} adding the necessary logic to execute non blocking operations.
  * <p>
- * Dependency injection and lifecycle phases will also be propagated to the {@link #delegate}
+ * If the operation being executed is blocking, then it delegates to the wrapped executor transparently. If the operation is non
+ * blocking, then it creates and injects a {@link CompletionCallback} on which the operation result will be notified.
+ * <p>
+ * It also implements {@link Lifecycle} and {@link MuleContextAware}, propagating those to the decoratee if necessary
  *
  * @since 4.2
  */
-public final class InterceptableOperationExecutorWrapper<M extends ComponentModel> extends AbstractInterceptable
-    implements CompletableComponentExecutor<M>, OperationArgumentResolverFactory<M> {
+public final class FutureCompletableExecutorWrapper<M extends ComponentModel>
+    implements CompletableComponentExecutor<M>, OperationArgumentResolverFactory<M>, Lifecycle, MuleContextAware {
 
-  private static final Logger LOGGER = getLogger(InterceptableOperationExecutorWrapper.class);
+  private static final Logger LOGGER = getLogger(FutureCompletableExecutorWrapper.class);
 
   private final CompletableComponentExecutor<M> delegate;
+  private MuleContext muleContext;
 
-  /**
-   * Creates a new instance
-   *
-   * @param delegate the {@link CompletableComponentExecutor} to be decorated
-   * @param interceptors the {@link Interceptor interceptors} that should apply to the {@code delegate}
-   */
-  public InterceptableOperationExecutorWrapper(CompletableComponentExecutor<M> delegate, List<Interceptor> interceptors) {
-    super(interceptors);
+  public FutureCompletableExecutorWrapper(CompletableComponentExecutor<M> delegate) {
     this.delegate = delegate;
   }
 
-  /**
-   * Directly delegates into {@link #delegate} {@inheritDoc}
-   */
   @Override
   public CompletableFuture<Object> execute(ExecutionContext<M> executionContext) {
-    return delegate.execute(executionContext);
+    final CompletableFuture<Object> future = new CompletableFuture<>();
+    final ExecutionContextAdapter<M> context = (ExecutionContextAdapter<M>) executionContext;
+    final FutureCompletionCallback callback = new FutureCompletionCallback(future);
+
+    context.setVariable(COMPLETION_CALLBACK_CONTEXT_PARAM, callback);
+
+    try {
+      delegate.execute(executionContext);
+    } catch (Throwable t) {
+      future.completeExceptionally(wrapFatal(t));
+    }
+
+    return future;
   }
 
-  /**
-   * Performs dependency injection into the {@link #delegate} and the items in the {@link #interceptors} list.
-   * <p>
-   * Then it propagates this lifecycle phase into them.
-   *
-   * @throws InitialisationException in case of error
-   */
   @Override
   public void initialise() throws InitialisationException {
     initialiseIfNeeded(delegate, true, muleContext);
-    super.initialise();
   }
 
-  /**
-   * Propagates this lifecycle phase into the items in the {@link #interceptors} list and the {@link #delegate}
-   *
-   * @throws MuleException in case of error
-   */
   @Override
   public void start() throws MuleException {
-    super.start();
     startIfNeeded(delegate);
   }
 
-  /**
-   * Propagates this lifecycle phase into the items in the {@link #interceptors} list and the {@link #delegate}
-   *
-   * @throws MuleException in case of error
-   */
   @Override
   public void stop() throws MuleException {
-    super.stop();
     stopIfNeeded(delegate);
   }
 
-  /**
-   * Propagates this lifecycle phase into the items in the {@link #interceptors} list and the {@link #delegate}
-   *
-   * @throws MuleException in case of error
-   */
   @Override
   public void dispose() {
-    super.dispose();
     disposeIfNeeded(delegate, LOGGER);
+  }
+
+  @Override
+  public void setMuleContext(MuleContext muleContext) {
+    this.muleContext = muleContext;
   }
 
   @Override

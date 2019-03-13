@@ -15,9 +15,6 @@ import static org.mule.runtime.module.extension.soap.internal.loader.SoapInvokeO
 import static org.mule.runtime.module.extension.soap.internal.loader.SoapInvokeOperationDeclarer.OPERATION_PARAM;
 import static org.mule.runtime.module.extension.soap.internal.loader.SoapInvokeOperationDeclarer.SERVICE_PARAM;
 import static org.mule.runtime.module.extension.soap.internal.loader.SoapInvokeOperationDeclarer.TRANSPORT_HEADERS_PARAM;
-import static reactor.core.publisher.Mono.error;
-import static reactor.core.publisher.Mono.justOrEmpty;
-
 import org.mule.runtime.api.artifact.Registry;
 import org.mule.runtime.api.el.BindingContext;
 import org.mule.runtime.api.el.MuleExpressionLanguage;
@@ -29,8 +26,7 @@ import org.mule.runtime.core.api.transformer.MessageTransformerException;
 import org.mule.runtime.core.api.transformer.TransformerException;
 import org.mule.runtime.core.api.util.IOUtils;
 import org.mule.runtime.core.internal.policy.PolicyManager;
-import org.mule.runtime.extension.api.client.ExtensionsClient;
-import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
 import org.mule.runtime.extension.api.soap.SoapAttachment;
 import org.mule.runtime.module.extension.internal.runtime.resolver.ConnectionArgumentResolver;
@@ -43,21 +39,20 @@ import org.mule.runtime.soap.api.message.SoapRequest;
 import org.mule.runtime.soap.api.message.SoapRequestBuilder;
 import org.mule.runtime.soap.api.message.SoapResponse;
 
-import org.reactivestreams.Publisher;
-
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import javax.inject.Inject;
 
 /**
- * {@link ComponentExecutor} implementation that executes SOAP operations using a provided {@link SoapClient}.
+ * {@link CompletableComponentExecutor} implementation that executes SOAP operations using a provided {@link SoapClient}.
  *
  * @since 4.0
  */
-public final class SoapOperationExecutor implements ComponentExecutor<OperationModel> {
+public final class SoapOperationExecutor implements CompletableComponentExecutor<OperationModel> {
 
   @Inject
   private MuleExpressionLanguage expressionExecutor;
@@ -79,7 +74,8 @@ public final class SoapOperationExecutor implements ComponentExecutor<OperationM
    * {@inheritDoc}
    */
   @Override
-  public Publisher<Object> execute(ExecutionContext<OperationModel> context) {
+  public CompletableFuture<Object> execute(ExecutionContext<OperationModel> context) {
+    CompletableFuture<Object> f = new CompletableFuture<>();
     try {
       String serviceId = context.getParameter(SERVICE_PARAM);
       ForwardingSoapClient connection = (ForwardingSoapClient) connectionResolver.resolve(context).get();
@@ -92,14 +88,16 @@ public final class SoapOperationExecutor implements ComponentExecutor<OperationM
                                                                                                                       .get())
           .map(d -> soapClient.consume(request, d))
           .orElseGet(() -> soapClient.consume(request));
-      return justOrEmpty(response.getAsResult(streamingHelperArgumentResolver.resolve(context).get()));
+      f.complete(response.getAsResult(streamingHelperArgumentResolver.resolve(context).get()));
     } catch (MessageTransformerException | TransformerException e) {
-      return error(e);
+      f.completeExceptionally(e);
     } catch (Exception e) {
-      return error(soapExceptionEnricher.enrich(e));
+      f.completeExceptionally(soapExceptionEnricher.enrich(e));
     } catch (Throwable t) {
-      return error(wrapFatal(t));
+      f.completeExceptionally(wrapFatal(t));
     }
+
+    return f;
   }
 
   /**

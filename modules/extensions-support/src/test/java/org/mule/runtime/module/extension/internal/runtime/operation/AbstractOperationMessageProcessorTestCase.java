@@ -11,6 +11,7 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.emptySet;
 import static java.util.Optional.empty;
 import static java.util.Optional.of;
+import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.apache.commons.lang3.StringUtils.EMPTY;
 import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,8 +40,6 @@ import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.m
 import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.mockSubTypes;
 import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.setRequires;
 import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.toMetadataType;
-import static reactor.core.publisher.Mono.just;
-
 import org.mule.metadata.api.model.StringType;
 import org.mule.runtime.api.lifecycle.Disposable;
 import org.mule.runtime.api.lifecycle.Initialisable;
@@ -89,8 +88,8 @@ import org.mule.runtime.extension.api.property.MetadataKeyPartModelProperty;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationProvider;
 import org.mule.runtime.extension.api.runtime.exception.ExceptionHandlerFactory;
-import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
-import org.mule.runtime.extension.api.runtime.operation.ComponentExecutorFactory;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutorFactory;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 import org.mule.runtime.module.extension.internal.loader.java.property.FieldOperationParameterModelProperty;
 import org.mule.runtime.module.extension.internal.loader.java.property.InterceptorsModelProperty;
@@ -103,6 +102,8 @@ import org.mule.runtime.module.extension.internal.runtime.resolver.ValueResolvin
 import org.mule.tck.junit4.AbstractMuleContextTestCase;
 import org.mule.test.metadata.extension.resolver.TestNoConfigMetadataResolver;
 
+import java.util.Collections;
+
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.junit.Before;
@@ -110,9 +111,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
-
-import java.util.Collections;
-import java.util.Optional;
+import org.mockito.stubbing.Answer;
 
 @RunWith(MockitoJUnitRunner.class)
 public abstract class AbstractOperationMessageProcessorTestCase extends AbstractMuleContextTestCase {
@@ -138,10 +137,10 @@ public abstract class AbstractOperationMessageProcessorTestCase extends Abstract
   protected ConnectionManagerAdapter connectionManagerAdapter;
 
   @Mock(lenient = true)
-  protected ComponentExecutorFactory operationExecutorFactory;
+  protected CompletableComponentExecutorFactory operationExecutorFactory;
 
   @Mock(extraInterfaces = {Lifecycle.class, MuleContextAware.class}, lenient = true)
-  protected ComponentExecutor operationExecutor;
+  protected CompletableComponentExecutor operationExecutor;
 
   @Mock(answer = RETURNS_DEEP_STUBS, lenient = true)
   protected ResolverSet resolverSet;
@@ -288,17 +287,17 @@ public abstract class AbstractOperationMessageProcessorTestCase extends Abstract
     when(operationModel.getModelProperty(InterceptorsModelProperty.class)).thenReturn(empty());
 
     when(operationExecutorFactory.createExecutor(same(operationModel), anyMap())).thenReturn(operationExecutor);
-    when(operationExecutor.execute(any())).thenReturn(just(""));
+    when(operationExecutor.execute(any())).thenReturn(completedFuture(""));
 
     when(extensionManager.getExtensions()).thenReturn(Collections.singleton(extensionModel));
 
     when(cacheIdGeneratorFactory.create(any(), any())).thenReturn(cacheIdGenerator);
-    when(cacheIdGenerator.getIdForComponentMetadata(any()))
-        .then(invocation -> Optional.of(new MetadataCacheId(UUID.getUUID(), null)));
-    when(cacheIdGenerator.getIdForGlobalMetadata(any()))
-        .then(invocation -> Optional.of(new MetadataCacheId(UUID.getUUID(), null)));
-    when(cacheIdGenerator.getIdForMetadataKeys(any()))
-        .then(invocation -> Optional.of(new MetadataCacheId(UUID.getUUID(), null)));
+
+    Answer<Object> cacheIdAnswer = invocation -> of(new MetadataCacheId(UUID.getUUID(), null));
+
+    when(cacheIdGenerator.getIdForComponentMetadata(any())).then(cacheIdAnswer);
+    when(cacheIdGenerator.getIdForGlobalMetadata(any())).then(cacheIdAnswer);
+    when(cacheIdGenerator.getIdForMetadataKeys(any())).then(cacheIdAnswer);
 
     ((MuleContextWithRegistry) muleContext).getRegistry().registerObject("metadata.cache.id.model.generator.factory",
                                                                          cacheIdGeneratorFactory);

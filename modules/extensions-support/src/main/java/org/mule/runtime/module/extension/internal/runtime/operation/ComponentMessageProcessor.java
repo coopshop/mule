@@ -35,7 +35,7 @@ import static org.mule.runtime.module.extension.internal.runtime.resolver.Resolv
 import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.getMemberField;
 import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.getMemberName;
 import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.isVoid;
-import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getOperationExecutorFactory;
+import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getCompletableOperationExecutorFactory;
 import static org.slf4j.LoggerFactory.getLogger;
 import static reactor.core.publisher.Flux.from;
 import static reactor.core.publisher.Mono.error;
@@ -70,11 +70,11 @@ import org.mule.runtime.core.internal.processor.ParametersResolverProcessor;
 import org.mule.runtime.core.privileged.event.BaseEventContext;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationProvider;
-import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
-import org.mule.runtime.extension.api.runtime.operation.ComponentExecutorFactory;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutorFactory;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
 import org.mule.runtime.extension.api.runtime.operation.Interceptor;
-import org.mule.runtime.module.extension.api.loader.java.property.ComponentExecutorModelProperty;
+import org.mule.runtime.module.extension.api.loader.java.property.CompletableComponentExecutorModelProperty;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 import org.mule.runtime.module.extension.internal.loader.ParameterGroupDescriptor;
 import org.mule.runtime.module.extension.internal.loader.java.property.FieldOperationParameterModelProperty;
@@ -114,9 +114,9 @@ import reactor.util.context.Context;
  * {@link #componentExecutor}. This message processor is capable of serving the execution of any {@link } of any
  * {@link ExtensionModel}.
  * <p>
- * A {@link #componentExecutor} is obtained by testing the {@link T} for a {@link ComponentExecutorModelProperty} through which a
- * {@link ComponentExecutorFactory} is obtained. Models with no such property cannot be used with this class. The obtained
- * {@link ComponentExecutor} serve all invocations of {@link #process(CoreEvent)} on {@code this} instance but will not be shared
+ * A {@link #componentExecutor} is obtained by testing the {@link T} for a {@link CompletableComponentExecutorModelProperty} through which a
+ * {@link CompletableComponentExecutorFactory} is obtained. Models with no such property cannot be used with this class. The obtained
+ * {@link CompletableComponentExecutor} serve all invocations of {@link #process(CoreEvent)} on {@code this} instance but will not be shared
  * with other instances of {@link ComponentMessageProcessor}. All the {@link Lifecycle} events that {@code this} instance receives
  * will be propagated to the {@link #componentExecutor}.
  * <p>
@@ -146,7 +146,7 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
   private final ReflectionCache reflectionCache;
 
   protected ExecutionMediator executionMediator;
-  protected ComponentExecutor componentExecutor;
+  protected CompletableComponentExecutor componentExecutor;
   protected ReturnDelegate returnDelegate;
   protected PolicyManager policyManager;
 
@@ -221,12 +221,11 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
                 .process(event, operationExecutionFunction, () -> resolutionResult, getLocation()));
           } else {
             // If this operation has no component location then it is internal. Don't apply policies on internal operations.
+
+            //TODO: experiment with doing a handle() instead
             return Mono.from(operationExecutionFunction.execute(resolutionResult, event));
           }
-        }))
-        .handle((event, sink) -> {
-
-        });
+        }));
   }
 
   private CoreEvent addContextToEvent(CoreEvent event, Context ctx) {
@@ -330,17 +329,16 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
     }
   }
 
-  private ComponentExecutor<T> createComponentExecutor() {
+  private CompletableComponentExecutor<T> createComponentExecutor() {
     Map<String, Object> params = new HashMap<>();
 
-    LazyValue<Optional<ConfigurationInstance>> staticConfiguration = new LazyValue<>(this::getStaticConfiguration);
     LazyValue<ValueResolvingContext> resolvingContext =
         new LazyValue<>(() -> {
           CoreEvent initialiserEvent = null;
           try {
             initialiserEvent = getInitialiserEvent();
             return ValueResolvingContext.builder(initialiserEvent, expressionManager)
-                .withConfig(staticConfiguration.get())
+                .withConfig(getStaticConfiguration())
                 .build();
           } finally {
             if (initialiserEvent != null) {
@@ -392,7 +390,7 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
       }
     });
 
-    return getOperationExecutorFactory(componentModel).createExecutor(componentModel, params);
+    return getCompletableOperationExecutorFactory(componentModel).createExecutor(componentModel, params);
   }
 
   private ObjectBuilder createFieldParameterGroupBuilder(ParameterGroupDescriptor groupDescriptor,

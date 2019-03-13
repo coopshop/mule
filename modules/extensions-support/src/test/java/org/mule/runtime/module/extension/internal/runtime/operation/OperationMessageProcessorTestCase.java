@@ -10,6 +10,7 @@ import static java.lang.String.format;
 import static java.util.Collections.emptySet;
 import static java.util.Collections.singletonMap;
 import static java.util.Optional.of;
+import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.is;
@@ -46,9 +47,6 @@ import static org.mule.runtime.module.extension.internal.runtime.operation.Opera
 import static org.mule.tck.junit4.matcher.DataTypeMatcher.like;
 import static org.mule.tck.util.MuleContextUtils.registerIntoMockContext;
 import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.toMetadataType;
-import static reactor.core.publisher.Mono.empty;
-import static reactor.core.publisher.Mono.just;
-
 import org.mule.metadata.api.model.MetadataType;
 import org.mule.runtime.api.el.DefaultExpressionLanguageFactoryService;
 import org.mule.runtime.api.event.EventContext;
@@ -87,14 +85,6 @@ import org.mule.runtime.module.extension.internal.util.ReflectionCache;
 import org.mule.tck.size.SmallTest;
 import org.mule.weave.v2.el.WeaveDefaultExpressionLanguageFactoryService;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.reflect.TypeToken;
 
@@ -107,6 +97,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.ExpectedException;
+import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRunner;
 
 @SmallTest
 @RunWith(MockitoJUnitRunner.class)
@@ -161,7 +159,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     Object attributes = mock(Object.class);
 
     when(operationExecutor.execute(any(ExecutionContext.class)))
-        .thenReturn(just(builder().output(payload).mediaType(mediaType).attributes(attributes).build()));
+        .thenReturn(completedFuture(builder().output(payload).mediaType(mediaType).attributes(attributes).build()));
 
     Message message = messageProcessor.process(event).getMessage();
     assertThat(message, is(notNullValue()));
@@ -181,7 +179,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     Object attributes = mock(Object.class);
 
     when(operationExecutor.execute(any(ExecutionContext.class)))
-        .thenReturn(just(builder().output(payload).mediaType(mediaType).attributes(attributes).build()));
+        .thenReturn(completedFuture(builder().output(payload).mediaType(mediaType).attributes(attributes).build()));
 
     Message message = (Message) messageProcessor.process(event).getVariables().get(TARGET_VAR).getValue();
     assertThat(message, is(notNullValue()));
@@ -197,7 +195,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     MediaType mediaType = ANY.withCharset(getDefaultEncoding(context));
 
     when(operationExecutor.execute(any(ExecutionContext.class)))
-        .thenReturn(just(builder().output(payload).mediaType(mediaType).build()));
+        .thenReturn(completedFuture(builder().output(payload).mediaType(mediaType).build()));
 
     event =
         CoreEvent.builder(event).message(Message.builder().value("").attributesValue(mock(Object.class)).build()).build();
@@ -214,7 +212,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
   public void operationReturnsOperationResultThatOnlySpecifiesPayload() throws Exception {
     Object payload = "hello world!";
 
-    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(just(builder().output(payload).build()));
+    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(completedFuture(builder().output(payload).build()));
     event =
         CoreEvent.builder(event).message(Message.builder().value("").attributesValue(mock(Object.class)).build()).build();
 
@@ -232,7 +230,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     Object attributes = mock(Object.class);
 
     when(operationExecutor.execute(any(ExecutionContext.class)))
-        .thenReturn(just(builder().output(payload).attributes(attributes).build()));
+        .thenReturn(completedFuture(builder().output(payload).attributes(attributes).build()));
 
     Message message = messageProcessor.process(event).getMessage();
     assertThat(message, is(notNullValue()));
@@ -245,7 +243,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
   @Test
   public void operationReturnsPayloadValue() throws Exception {
     Object value = new Object();
-    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(just(value));
+    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(completedFuture(value));
 
     Message message = messageProcessor.process(event).getMessage();
     assertThat(message, is(notNullValue()));
@@ -316,7 +314,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     messageProcessor = setUpOperationMessageProcessor();
 
     Object value = new Object();
-    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(just(value));
+    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(completedFuture(value));
 
     Message message = (Message) messageProcessor.process(event).getVariables().get(TARGET_VAR).getValue();
     assertThat(message, is(notNullValue()));
@@ -378,7 +376,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
         .thenReturn(new ImmutableOutputModel("Message.Payload", toMetadataType(void.class), false, emptySet()));
     messageProcessor = setUpOperationMessageProcessor();
 
-    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(empty());
+    when(operationExecutor.execute(any(ExecutionContext.class))).thenReturn(completedFuture(null));
     assertThat(messageProcessor.process(event), is(sameInstance(event)));
   }
 
@@ -478,7 +476,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
 
     doReturn(provider).when(cursorStreamProviderFactory).of(((BaseEventContext) event.getContext()).getRootContext(),
                                                             inputStream);
-    when(operationExecutor.execute(any())).thenReturn(just(inputStream));
+    when(operationExecutor.execute(any())).thenReturn(completedFuture(inputStream));
 
     messageProcessor.process(event);
     verify(streamingManager).manage(same(provider), any(EventContext.class));
@@ -508,6 +506,6 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     when(operationModel.getOutput()).thenReturn(new ImmutableOutputModel("desc", mapType, false, emptySet()));
     initialiseIfNeeded(messageProcessor, muleContext);
     when(operationExecutor.execute(any(ExecutionContext.class)))
-        .thenReturn(just(payload));
+        .thenReturn(completedFuture(payload));
   }
 }

@@ -9,6 +9,7 @@ package org.mule.runtime.module.extension.internal.runtime;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singleton;
 import static java.util.Optional.empty;
+import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.sameInstance;
@@ -27,14 +28,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mule.functional.junit4.matchers.ThrowableRootCauseMatcher.hasRootCause;
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.initialiseIfNeeded;
+import static org.mule.runtime.core.internal.util.ConcurrencyUtils.exceptionalFuture;
 import static org.mule.runtime.core.internal.util.rx.ImmediateScheduler.IMMEDIATE_SCHEDULER;
 import static org.mule.test.heisenberg.extension.HeisenbergErrors.HEALTH;
 import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.mockExceptionEnricher;
 import static reactor.core.Exceptions.unwrap;
-import static reactor.core.publisher.Mono.error;
 import static reactor.core.publisher.Mono.from;
-import static reactor.core.publisher.Mono.just;
-
 import org.mule.runtime.api.connection.ConnectionException;
 import org.mule.runtime.api.connection.ConnectionProvider;
 import org.mule.runtime.api.exception.ErrorTypeRepository;
@@ -57,7 +56,7 @@ import org.mule.runtime.extension.api.property.ClassLoaderModelProperty;
 import org.mule.runtime.extension.api.runtime.Interceptable;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.exception.ExceptionHandler;
-import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.Interceptor;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 import org.mule.runtime.module.extension.internal.runtime.config.MutableConfigurationStats;
@@ -69,6 +68,12 @@ import org.mule.tck.size.SmallTest;
 import org.mule.test.heisenberg.extension.exception.HeisenbergException;
 import org.mule.test.heisenberg.extension.exception.NullExceptionEnricher;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -78,13 +83,6 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.mockito.verification.VerificationMode;
-
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.function.Consumer;
-
 import reactor.core.publisher.Mono;
 
 @SmallTest
@@ -109,10 +107,10 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
   private MutableConfigurationStats configurationStats;
 
   @Mock(extraInterfaces = Interceptable.class, lenient = true)
-  private ComponentExecutor operationExecutor;
+  private CompletableComponentExecutor operationExecutor;
 
   @Mock
-  private ComponentExecutor operationExceptionExecutor;
+  private CompletableComponentExecutor operationExceptionExecutor;
 
   @Mock
   private Interceptor configurationInterceptor1;
@@ -155,8 +153,8 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
     when(extensionModel.getModelProperty(ClassLoaderModelProperty.class)).thenReturn(empty());
     mockExceptionEnricher(extensionModel, null);
     mockExceptionEnricher(operationModel, null);
-    when(operationExecutor.execute(operationContext)).thenReturn(just(result));
-    when(operationExceptionExecutor.execute(operationContext)).thenReturn(error(exception));
+    when(operationExecutor.execute(operationContext)).thenReturn(completedFuture(result));
+    when(operationExceptionExecutor.execute(operationContext)).thenReturn(exceptionalFuture(exception));
     when(operationContext.getConfiguration()).thenReturn(Optional.of(configurationInstance));
     when(operationContext.getExtensionModel()).thenReturn(extensionModel);
     when(operationContext.getTransactionConfig()).thenReturn(empty());
@@ -268,7 +266,7 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
     expectedException.expectCause(instanceOf(HeisenbergException.class));
     expectedException.expectMessage(ERROR);
     mockExceptionEnricher(operationModel, () -> exceptionEnricher);
-    when(operationExecutor.execute(any())).thenReturn(Mono.error(exception));
+    when(operationExecutor.execute(any())).thenReturn(exceptionalFuture(exception));
     Mono.from(new DefaultExecutionMediator(extensionModel, operationModel, new DefaultConnectionManager(muleContext),
                                            muleContext.getErrorTypeRepository())
                                                .execute(operationExceptionExecutor, operationContext))
@@ -279,7 +277,7 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
   public void notEnrichThrownException() throws Throwable {
     expectedException.expectCause(sameInstance(exception));
     mockExceptionEnricher(operationModel, () -> new NullExceptionEnricher());
-    when(operationExecutor.execute(any())).thenReturn(Mono.error(exception));
+    when(operationExecutor.execute(any())).thenReturn(exceptionalFuture(exception));
     Mono.from(new DefaultExecutionMediator(extensionModel, operationModel, new DefaultConnectionManager(muleContext),
                                            muleContext.getErrorTypeRepository())
                                                .execute(operationExceptionExecutor, operationContext))
@@ -431,7 +429,7 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
   }
 
   private void stubException() throws Exception {
-    when(operationExecutor.execute(operationContext)).thenReturn(error(connectionException));
+    when(operationExecutor.execute(operationContext)).thenReturn(exceptionalFuture((connectionException)));
   }
 
   private void setInterceptors(Interceptable interceptable, Interceptor... interceptors) {

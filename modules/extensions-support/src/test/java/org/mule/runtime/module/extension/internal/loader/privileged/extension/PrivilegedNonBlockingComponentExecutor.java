@@ -6,24 +6,22 @@
  */
 package org.mule.runtime.module.extension.internal.loader.privileged.extension;
 
-import static java.time.Duration.ofSeconds;
-import static reactor.core.publisher.Mono.delay;
-import static reactor.core.scheduler.Schedulers.fromExecutor;
-
+import static java.util.concurrent.TimeUnit.SECONDS;
 import org.mule.runtime.api.exception.MuleException;
 import org.mule.runtime.api.lifecycle.Startable;
 import org.mule.runtime.api.lifecycle.Stoppable;
 import org.mule.runtime.api.meta.model.operation.OperationModel;
 import org.mule.runtime.api.scheduler.Scheduler;
 import org.mule.runtime.api.scheduler.SchedulerService;
-import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
+
+import java.util.concurrent.CompletableFuture;
 
 import javax.inject.Inject;
 
-import org.reactivestreams.Publisher;
-
-public class PrivilegedNonBlockingComponentExecutor implements ComponentExecutor<OperationModel>, Startable, Stoppable {
+public class PrivilegedNonBlockingComponentExecutor
+    implements CompletableComponentExecutor<OperationModel>, Startable, Stoppable {
 
   public static final String OUTPUT = "Super Special Non Blocking";
 
@@ -43,7 +41,10 @@ public class PrivilegedNonBlockingComponentExecutor implements ComponentExecutor
 
 
   @Override
-  public Publisher<Object> execute(ExecutionContext<OperationModel> executionContext) {
-    return delay(ofSeconds(2), fromExecutor(ioScheduler)).map(l -> OUTPUT);
+  public CompletableFuture<Object> execute(ExecutionContext<OperationModel> executionContext) {
+    CompletableFuture<Object> f = new CompletableFuture<>();
+    ioScheduler.schedule(() -> f.complete(OUTPUT), 2, SECONDS);
+
+    return f;
   }
 }
