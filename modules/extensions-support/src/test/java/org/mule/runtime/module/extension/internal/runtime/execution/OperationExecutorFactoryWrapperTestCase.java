@@ -24,7 +24,6 @@ import static org.mule.runtime.module.extension.api.runtime.privileged.Execution
 import org.mule.runtime.api.component.Component;
 import org.mule.runtime.api.meta.model.ComponentModel;
 import org.mule.runtime.api.meta.model.ExtensionModel;
-import org.mule.runtime.api.meta.model.construct.ConstructModel;
 import org.mule.runtime.api.meta.model.operation.OperationModel;
 import org.mule.runtime.core.api.MuleContext;
 import org.mule.runtime.core.api.event.CoreEvent;
@@ -36,7 +35,6 @@ import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExec
 import org.mule.runtime.extension.api.runtime.operation.Result;
 import org.mule.runtime.extension.api.runtime.process.CompletionCallback;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
-import org.mule.runtime.module.extension.internal.loader.java.property.ImplementingMethodModelProperty;
 import org.mule.runtime.module.extension.internal.runtime.DefaultExecutionContext;
 import org.mule.tck.junit4.AbstractMuleTestCase;
 import org.mule.tck.size.SmallTest;
@@ -108,14 +106,6 @@ public class OperationExecutorFactoryWrapperTestCase extends AbstractMuleTestCas
   @Test
   public void nonJavaBlockingOperation() throws Exception {
     assertOperation(false, true);
-  }
-
-  @Test
-  public void construct() throws Exception {
-    final ConstructModel constructModel = mock(ConstructModel.class);
-    when(constructModel.getModelProperty(ImplementingMethodModelProperty.class)).thenReturn(empty());
-    wrapper.createExecutor(constructModel, emptyMap()).execute(ctx);
-    verify(ctx, never()).setVariable(eq(COMPLETION_CALLBACK_CONTEXT_PARAM), any());
   }
 
   private void assertOperation(boolean java, boolean blocking) throws Exception {

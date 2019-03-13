@@ -210,8 +210,8 @@ public final class DefaultExecutionMediator<T extends ComponentModel> implements
   private void onSuccess(ExecutionContext executionContext, Object result, List<Interceptor> interceptors) {
     intercept(interceptors, interceptor -> interceptor.onSuccess(executionContext, result),
               interceptor -> format(
-                  "Interceptor %s threw exception executing 'onSuccess' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result will be returned",
-                  interceptor));
+                                    "Interceptor %s threw exception executing 'onSuccess' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result will be returned",
+                                    interceptor));
   }
 
   private Throwable onError(ExecutionContext executionContext, Throwable e, List<Interceptor> interceptors) {
@@ -223,8 +223,8 @@ public final class DefaultExecutionMediator<T extends ComponentModel> implements
         exceptionHolder.set(decoratedException);
       }
     }, interceptor -> format(
-        "Interceptor %s threw exception executing 'onError' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's exception will be returned",
-        interceptor));
+                             "Interceptor %s threw exception executing 'onError' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's exception will be returned",
+                             interceptor));
 
     return exceptionHolder.get();
   }
@@ -232,8 +232,8 @@ public final class DefaultExecutionMediator<T extends ComponentModel> implements
   void after(ExecutionContext executionContext, Object result, List<Interceptor> interceptors) {
     intercept(interceptors, interceptor -> interceptor.after(executionContext, result),
               interceptor -> format(
-                  "Interceptor %s threw exception executing 'after' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result be returned",
-                  interceptor));
+                                    "Interceptor %s threw exception executing 'after' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result be returned",
+                                    interceptor));
   }
 
   private void intercept(List<Interceptor> interceptors, Consumer<Interceptor> closure,
