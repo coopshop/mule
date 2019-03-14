@@ -6,15 +6,12 @@
  */
 package org.mule.runtime.module.extension.internal.runtime.connectivity.oauth;
 
-import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.mule.runtime.extension.api.connectivity.oauth.ExtensionOAuthConstants.RESOURCE_OWNER_ID_PARAMETER_NAME;
 import static org.mule.runtime.oauth.api.state.ResourceOwnerOAuthContext.DEFAULT_RESOURCE_OWNER_ID;
 import org.mule.runtime.api.meta.model.ComponentModel;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
-
-import java.util.concurrent.CompletableFuture;
 
 import javax.inject.Inject;
 
@@ -29,13 +26,13 @@ public class UnauthorizeOperationExecutor implements CompletableComponentExecuto
   private ExtensionsOAuthManager oauthManager;
 
   @Override
-  public CompletableFuture<Object> execute(ExecutionContext<ComponentModel> executionContext) {
+  public void execute(ExecutionContext<ComponentModel> executionContext, ExecutorCallback callback) {
     ConfigurationInstance config = executionContext.getConfiguration().get();
     String ownerId = executionContext.hasParameter(RESOURCE_OWNER_ID_PARAMETER_NAME)
         ? executionContext.getParameter(RESOURCE_OWNER_ID_PARAMETER_NAME)
         : DEFAULT_RESOURCE_OWNER_ID;
     oauthManager.invalidate(config.getName(), ownerId);
 
-    return completedFuture(null);
+    callback.complete(null);
   }
 }

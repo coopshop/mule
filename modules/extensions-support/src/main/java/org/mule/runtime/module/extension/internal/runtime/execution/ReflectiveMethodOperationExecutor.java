@@ -28,7 +28,6 @@ import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContext
 
 import java.lang.reflect.Method;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
@@ -56,17 +55,14 @@ public class ReflectiveMethodOperationExecutor<M extends ComponentModel>
    * {@inheritDoc}
    */
   @Override
-  public CompletableFuture<Object> execute(ExecutionContext<M> executionContext) {
-    CompletableFuture<Object> result = new CompletableFuture<>();
+  public void execute(ExecutionContext<M> executionContext, ExecutorCallback callback) {
     try {
-      result.complete(executor.execute(executionContext));
+      callback.complete(executor.execute(executionContext));
     } catch (Exception e) {
-      result.completeExceptionally(handleError(e, (ExecutionContextAdapter<M>) executionContext));
+      callback.error(handleError(e, (ExecutionContextAdapter<M>) executionContext));
     } catch (Throwable t) {
-      result.completeExceptionally(handleError(wrapFatal(t), (ExecutionContextAdapter<M>) executionContext));
+      callback.error(handleError(wrapFatal(t), (ExecutionContextAdapter<M>) executionContext));
     }
-
-    return result;
   }
 
   private Throwable handleError(Throwable t, ExecutionContextAdapter<M> executionContext) {

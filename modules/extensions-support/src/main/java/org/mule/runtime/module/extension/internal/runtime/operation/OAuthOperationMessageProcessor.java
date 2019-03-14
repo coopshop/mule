@@ -11,8 +11,6 @@ import static org.mule.runtime.api.i18n.I18nMessageFactory.createStaticMessage;
 import static org.mule.runtime.core.api.connection.util.ConnectionProviderUtils.unwrapProviderWrapper;
 import static org.mule.runtime.core.api.util.ExceptionUtils.extractCauseOfType;
 import static org.slf4j.LoggerFactory.getLogger;
-import static reactor.core.publisher.Mono.error;
-
 import org.mule.runtime.api.connection.ConnectionProvider;
 import org.mule.runtime.api.exception.MuleRuntimeException;
 import org.mule.runtime.api.meta.model.ExtensionModel;
@@ -32,8 +30,8 @@ import org.mule.runtime.module.extension.internal.runtime.resolver.ResolverSet;
 import org.mule.runtime.module.extension.internal.util.ReflectionCache;
 
 import org.slf4j.Logger;
-
-import reactor.core.publisher.Mono;
+import reactor.core.publisher.SynchronousSink;
+import reactor.util.context.Context;
 
 /**
  * A specialization of {@link OperationMessageProcessor} for operations which might be running
@@ -71,56 +69,88 @@ public class OAuthOperationMessageProcessor extends OperationMessageProcessor {
   }
 
   @Override
-  protected Mono<CoreEvent> doProcess(CoreEvent event, ExecutionContextAdapter<OperationModel> operationContext) {
-    return super.doProcess(event, operationContext)
-        .onErrorResume(AccessTokenExpiredException.class, e -> {
-          OAuthConnectionProviderWrapper connectionProvider = getOAuthConnectionProvider(operationContext);
-          if (connectionProvider == null) {
-            return error(e);
-          }
+  protected void executeOperation(CoreEvent event,
+                                  ExecutionContextAdapter<OperationModel> operationContext,
+                                  SynchronousSink<CoreEvent> sink) {
 
-          AccessTokenExpiredException expiredException = getTokenExpirationException(e);
-          if (expiredException != null) {
-            if (LOGGER.isDebugEnabled()) {
-              LOGGER
-                  .debug(format("AccessToken for resourceOwner '%s' expired while executing operation '%s:%s' using config '%s'. "
-                      + "Will attempt to refresh token and retry operation", connectionProvider.getResourceOwnerId(),
-                                getExtensionModel().getName(), operationContext.getComponentModel().getName(),
-                                operationContext.getConfiguration().get().getName()));
-            }
+    super.executeOperation(event, operationContext, refreshable(event, operationContext, sink));
 
-            String ownerConfigName = operationContext.getConfiguration().get().getName();
-            try {
-              oauthManager.refreshToken(ownerConfigName, expiredException.getResourceOwnerId(),
-                                        getOAuthConnectionProvider(operationContext));
-            } catch (Exception refreshException) {
-              return error(new MuleRuntimeException(createStaticMessage(format(
-                                                                               "AccessToken for resourceOwner '%s' expired while executing operation '%s:%s' using config '%s'. Refresh token "
-                                                                                   + "workflow was attempted but failed with the following exception",
-                                                                               connectionProvider.getResourceOwnerId(),
-                                                                               getExtensionModel().getName(),
-                                                                               operationContext.getComponentModel().getName(),
-                                                                               operationContext.getConfiguration().get()
-                                                                                   .getName())),
-                                                    refreshException));
-            }
-
-            if (LOGGER.isDebugEnabled()) {
-              LOGGER.debug(format("Access Token successfully refreshed for resourceOwnerId '%s' on config '%s'",
-                                  connectionProvider.getResourceOwnerId(), operationContext.getConfiguration().get().getName()));
-            }
-
-            return super.doProcess(event, operationContext);
-          } else {
-            return error(e);
-          }
-        });
   }
 
-  private AccessTokenExpiredException getTokenExpirationException(Exception e) {
-    return e instanceof AccessTokenExpiredException
-        ? (AccessTokenExpiredException) e
-        : (AccessTokenExpiredException) extractCauseOfType(e, AccessTokenExpiredException.class).orElse(null);
+  private SynchronousSink<CoreEvent> refreshable(CoreEvent event,
+                                                 ExecutionContextAdapter<OperationModel> operationContext,
+                                                 SynchronousSink<CoreEvent> sink) {
+    return new SynchronousSink<CoreEvent>() {
+
+      @Override
+      public void error(Throwable e) {
+        AccessTokenExpiredException expiredException = getTokenExpirationException(e);
+        if (expiredException == null) {
+          sink.error(e);
+          return;
+        }
+
+        OAuthConnectionProviderWrapper connectionProvider = getOAuthConnectionProvider(operationContext);
+        if (connectionProvider == null) {
+          sink.error(e);
+          return;
+        }
+
+        if (LOGGER.isDebugEnabled()) {
+          LOGGER
+              .debug(format("AccessToken for resourceOwner '%s' expired while executing operation '%s:%s' using config '%s'. "
+                  + "Will attempt to refresh token and retry operation", connectionProvider.getResourceOwnerId(),
+                            getExtensionModel().getName(), operationContext.getComponentModel().getName(),
+                            operationContext.getConfiguration().get().getName()));
+        }
+
+        String ownerConfigName = operationContext.getConfiguration().get().getName();
+        try {
+          oauthManager.refreshToken(ownerConfigName, expiredException.getResourceOwnerId(),
+                                    getOAuthConnectionProvider(operationContext));
+        } catch (Exception refreshException) {
+          sink.error(new MuleRuntimeException(createStaticMessage(format(
+                                                                         "AccessToken for resourceOwner '%s' expired while executing operation '%s:%s' using config '%s'. Refresh token "
+                                                                             + "workflow was attempted but failed with the following exception",
+                                                                         connectionProvider.getResourceOwnerId(),
+                                                                         getExtensionModel().getName(),
+                                                                         operationContext.getComponentModel().getName(),
+                                                                         operationContext.getConfiguration().get()
+                                                                             .getName())),
+                                              refreshException));
+
+          return;
+        }
+
+        if (LOGGER.isDebugEnabled()) {
+          LOGGER.debug(format("Access Token successfully refreshed for resourceOwnerId '%s' on config '%s'",
+                              connectionProvider.getResourceOwnerId(), operationContext.getConfiguration().get().getName()));
+        }
+
+        OAuthOperationMessageProcessor.super.executeOperation(event, operationContext, sink);
+      }
+
+      @Override
+      public void complete() {
+        sink.complete();
+      }
+
+      @Override
+      public Context currentContext() {
+        return sink.currentContext();
+      }
+
+      @Override
+      public void next(CoreEvent coreEvent) {
+        sink.next(coreEvent);
+      }
+    };
+  }
+
+  private AccessTokenExpiredException getTokenExpirationException(Throwable t) {
+    return t instanceof AccessTokenExpiredException
+        ? (AccessTokenExpiredException) t
+        : (AccessTokenExpiredException) extractCauseOfType(t, AccessTokenExpiredException.class).orElse(null);
   }
 
   private OAuthConnectionProviderWrapper getOAuthConnectionProvider(ExecutionContextAdapter operationContext) {

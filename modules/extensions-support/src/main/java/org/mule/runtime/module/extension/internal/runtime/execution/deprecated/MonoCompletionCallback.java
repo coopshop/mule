@@ -19,11 +19,11 @@ import reactor.core.publisher.MonoSink;
  * @deprecated since 4.2
  */
 @Deprecated
-final class ReactorCompletionCallback implements CompletionCallback<Object, Object> {
+final class MonoCompletionCallback implements CompletionCallback<Object, Object> {
 
   private final MonoSink<Object> sink;
 
-  ReactorCompletionCallback(MonoSink<Object> sink) {
+  MonoCompletionCallback(MonoSink<Object> sink) {
     this.sink = sink;
   }
 

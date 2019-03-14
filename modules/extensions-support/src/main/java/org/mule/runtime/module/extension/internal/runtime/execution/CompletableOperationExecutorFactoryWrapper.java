@@ -52,7 +52,7 @@ public final class CompletableOperationExecutorFactoryWrapper<T extends Componen
   public CompletableComponentExecutor<T> createExecutor(T componentModel, Map<String, Object> parameters) {
     CompletableComponentExecutor<T> executor = delegate.createExecutor(componentModel, parameters);
     if (isJavaNonBlocking(componentModel, executor)) {
-      executor = new FutureCompletableExecutorWrapper<>(executor);
+      executor = new NonBlockingCompletableExecutorWrapper<>(executor);
     }
 
     return new InterceptableOperationExecutorWrapper(executor, interceptors);

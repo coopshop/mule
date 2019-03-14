@@ -43,7 +43,6 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
 import javax.inject.Inject;
 
@@ -73,31 +72,30 @@ public final class SoapOperationExecutor implements CompletableComponentExecutor
   /**
    * {@inheritDoc}
    */
+
   @Override
-  public CompletableFuture<Object> execute(ExecutionContext<OperationModel> context) {
-    CompletableFuture<Object> f = new CompletableFuture<>();
+  public void execute(ExecutionContext<OperationModel> context, ExecutorCallback callback) {
     try {
       String serviceId = context.getParameter(SERVICE_PARAM);
       ForwardingSoapClient connection = (ForwardingSoapClient) connectionResolver.resolve(context).get();
       Map<String, String> customHeaders = connection.getCustomHeaders(serviceId, getOperation(context));
       SoapRequest request = getRequest(context, customHeaders);
       SoapClient soapClient = connection.getSoapClient(serviceId);
-      SoapResponse response = connection.getExtensionsClientDispatcher(() -> new ExtensionsClientArgumentResolver(registry,
-                                                                                                                  policyManager)
-                                                                                                                      .resolve(context)
-                                                                                                                      .get())
+      SoapResponse response = connection
+          .getExtensionsClientDispatcher(() -> new ExtensionsClientArgumentResolver(registry, policyManager)
+              .resolve(context)
+              .get())
           .map(d -> soapClient.consume(request, d))
           .orElseGet(() -> soapClient.consume(request));
-      f.complete(response.getAsResult(streamingHelperArgumentResolver.resolve(context).get()));
-    } catch (MessageTransformerException | TransformerException e) {
-      f.completeExceptionally(e);
-    } catch (Exception e) {
-      f.completeExceptionally(soapExceptionEnricher.enrich(e));
-    } catch (Throwable t) {
-      f.completeExceptionally(wrapFatal(t));
-    }
 
-    return f;
+      callback.complete((response.getAsResult(streamingHelperArgumentResolver.resolve(context).get())));
+    } catch (MessageTransformerException | TransformerException e) {
+      callback.error(e);
+    } catch (Exception e) {
+      callback.error(soapExceptionEnricher.enrich(e));
+    } catch (Throwable t) {
+      callback.error(wrapFatal(t));
+    }
   }
 
   /**
@@ -135,7 +133,7 @@ public final class SoapOperationExecutor implements CompletableComponentExecutor
   private String getOperation(ExecutionContext<OperationModel> context) {
     return (String) getParam(context, OPERATION_PARAM)
         .orElseThrow(
-                     () -> new IllegalStateException("Execution Context does not have the required operation parameter"));
+            () -> new IllegalStateException("Execution Context does not have the required operation parameter"));
   }
 
   private <T> Optional<T> getParam(ExecutionContext<OperationModel> context, String param) {
@@ -146,11 +144,11 @@ public final class SoapOperationExecutor implements CompletableComponentExecutor
     String hs = IOUtils.toString(headers);
     BindingContext context = BindingContext.builder().addBinding("payload", new TypedValue<>(hs, DataType.XML_STRING)).build();
     return expressionExecutor.evaluate("%dw 2.0 \n"
-        + "output application/java \n"
-        + "---\n"
-        + "payload.headers mapObject (value, key) -> {\n"
-        + "    '$key' : write((key): value, \"application/xml\")\n"
-        + "}", context).getValue();
+                                           + "output application/java \n"
+                                           + "---\n"
+                                           + "payload.headers mapObject (value, key) -> {\n"
+                                           + "    '$key' : write((key): value, \"application/xml\")\n"
+                                           + "}", context).getValue();
   }
 
   private Map<String, SoapAttachment> toSoapAttachments(Map<String, TypedValue<?>> attachments)

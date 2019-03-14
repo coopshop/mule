@@ -15,7 +15,6 @@ import org.mule.runtime.extension.api.runtime.operation.ComponentExecutorFactory
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 public class ComponentExecutorCompletableAdapterFactory<T extends ComponentModel>
     implements CompletableComponentExecutorFactory<T> {
@@ -40,8 +39,8 @@ public class ComponentExecutorCompletableAdapterFactory<T extends ComponentModel
     }
 
     @Override
-    public CompletableFuture<Object> execute(ExecutionContext<T> executionContext) {
-      return from(delegate.execute(executionContext)).toFuture();
+    public void execute(ExecutionContext<T> executionContext, ExecutorCallback callback) {
+      from(delegate.execute(executionContext)).subscribe(callback::complete, callback::error);
     }
   }
 }

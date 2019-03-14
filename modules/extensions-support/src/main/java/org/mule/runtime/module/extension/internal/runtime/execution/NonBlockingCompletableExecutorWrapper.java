@@ -26,7 +26,6 @@ import org.mule.runtime.extension.api.runtime.process.CompletionCallback;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
@@ -41,33 +40,30 @@ import org.slf4j.Logger;
  *
  * @since 4.2
  */
-public final class FutureCompletableExecutorWrapper<M extends ComponentModel>
+public final class NonBlockingCompletableExecutorWrapper<M extends ComponentModel>
     implements CompletableComponentExecutor<M>, OperationArgumentResolverFactory<M>, Lifecycle, MuleContextAware {
 
-  private static final Logger LOGGER = getLogger(FutureCompletableExecutorWrapper.class);
+  private static final Logger LOGGER = getLogger(NonBlockingCompletableExecutorWrapper.class);
 
   private final CompletableComponentExecutor<M> delegate;
   private MuleContext muleContext;
 
-  public FutureCompletableExecutorWrapper(CompletableComponentExecutor<M> delegate) {
+  public NonBlockingCompletableExecutorWrapper(CompletableComponentExecutor<M> delegate) {
     this.delegate = delegate;
   }
 
   @Override
-  public CompletableFuture<Object> execute(ExecutionContext<M> executionContext) {
-    final CompletableFuture<Object> future = new CompletableFuture<>();
+  public void execute(ExecutionContext<M> executionContext, ExecutorCallback callback) {
     final ExecutionContextAdapter<M> context = (ExecutionContextAdapter<M>) executionContext;
-    final FutureCompletionCallback callback = new FutureCompletionCallback(future);
+    final CompletionCallbackFacade facade = new CompletionCallbackFacade(callback);
 
-    context.setVariable(COMPLETION_CALLBACK_CONTEXT_PARAM, callback);
+    context.setVariable(COMPLETION_CALLBACK_CONTEXT_PARAM, facade);
 
     try {
-      delegate.execute(executionContext);
+      delegate.execute(executionContext, callback);
     } catch (Throwable t) {
-      future.completeExceptionally(wrapFatal(t));
+      callback.error(wrapFatal(t));
     }
-
-    return future;
   }
 
   @Override

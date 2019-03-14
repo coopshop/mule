@@ -59,7 +59,7 @@ public final class ReactiveOperationExecutionWrapper<M extends ComponentModel>
   public Publisher<Object> execute(ExecutionContext<M> executionContext) {
     ExecutionContextAdapter<M> context = (ExecutionContextAdapter<M>) executionContext;
     return Mono.create(sink -> {
-      ReactorCompletionCallback callback = new ReactorCompletionCallback(sink);
+      MonoCompletionCallback callback = new MonoCompletionCallback(sink);
       context.setVariable(COMPLETION_CALLBACK_CONTEXT_PARAM, callback);
 
       try {

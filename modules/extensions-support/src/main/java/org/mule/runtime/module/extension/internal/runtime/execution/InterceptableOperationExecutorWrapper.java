@@ -22,7 +22,6 @@ import org.mule.runtime.module.extension.internal.loader.AbstractInterceptable;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
@@ -56,8 +55,8 @@ public final class InterceptableOperationExecutorWrapper<M extends ComponentMode
    * Directly delegates into {@link #delegate} {@inheritDoc}
    */
   @Override
-  public CompletableFuture<Object> execute(ExecutionContext<M> executionContext) {
-    return delegate.execute(executionContext);
+  public void execute(ExecutionContext<M> executionContext, ExecutorCallback callback) {
+    delegate.execute(executionContext, callback);
   }
 
   /**

@@ -6,26 +6,25 @@
  */
 package org.mule.runtime.module.extension.internal.runtime.execution;
 
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor.ExecutorCallback;
 import org.mule.runtime.extension.api.runtime.operation.Result;
 import org.mule.runtime.extension.api.runtime.process.CompletionCallback;
 
-import java.util.concurrent.CompletableFuture;
+public class CompletionCallbackFacade<T, A> implements CompletionCallback<T, A> {
 
-public class FutureCompletionCallback implements CompletionCallback<Object, Object> {
+  private final ExecutorCallback delegate;
 
-  private final CompletableFuture<Object> future;
-
-  public FutureCompletionCallback(CompletableFuture<Object> future) {
-    this.future = future;
+  public CompletionCallbackFacade(ExecutorCallback delegate) {
+    this.delegate = delegate;
   }
 
   @Override
-  public void success(Result<Object, Object> result) {
-    future.complete(result);
+  public void success(Result<T, A> result) {
+    delegate.complete(result);
   }
 
   @Override
   public void error(Throwable e) {
-    future.completeExceptionally(e);
+    delegate.error(e);
   }
 }

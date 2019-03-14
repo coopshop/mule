@@ -16,8 +16,6 @@ import org.mule.runtime.api.scheduler.SchedulerService;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
 
-import java.util.concurrent.CompletableFuture;
-
 import javax.inject.Inject;
 
 public class PrivilegedNonBlockingComponentExecutor
@@ -39,12 +37,8 @@ public class PrivilegedNonBlockingComponentExecutor
     ioScheduler.stop();
   }
 
-
   @Override
-  public CompletableFuture<Object> execute(ExecutionContext<OperationModel> executionContext) {
-    CompletableFuture<Object> f = new CompletableFuture<>();
-    ioScheduler.schedule(() -> f.complete(OUTPUT), 2, SECONDS);
-
-    return f;
+  public void execute(ExecutionContext<OperationModel> executionContext, ExecutorCallback callback) {
+    ioScheduler.schedule(() -> callback.complete(OUTPUT), 2, SECONDS);
   }
 }

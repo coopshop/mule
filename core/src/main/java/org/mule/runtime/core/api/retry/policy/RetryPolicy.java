@@ -6,19 +6,21 @@
  */
 package org.mule.runtime.core.api.retry.policy;
 
+import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.mule.runtime.core.api.rx.Exceptions.unwrap;
+import static org.mule.runtime.core.internal.util.ConcurrencyUtils.exceptionalFuture;
 import static org.mule.runtime.core.internal.util.rx.ImmediateScheduler.IMMEDIATE_SCHEDULER;
 import static reactor.core.publisher.Mono.from;
-
 import org.mule.api.annotation.NoImplement;
 import org.mule.runtime.api.scheduler.Scheduler;
 
-import org.reactivestreams.Publisher;
-
-import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+
+import org.reactivestreams.Publisher;
 
 /**
  * A RetryPolicy takes some action each time an exception occurs and returns a {@link PolicyStatus} which indicates whether the
@@ -36,6 +38,20 @@ public interface RetryPolicy {
   PolicyStatus applyPolicy(Throwable cause);
 
 
+  default <T> CompletableFuture<T> applyPolicy(Callable<T> callable,
+                                               Predicate<Throwable> shouldRetry,
+                                               Consumer<Throwable> onExhausted,
+                                               Function<Throwable, Throwable> errorFunction,
+                                               Scheduler retryScheduler) {
+    try {
+      return completedFuture(callable.call());
+    } catch (Throwable t) {
+      t = unwrap(t);
+      onExhausted.accept(t);
+      return exceptionalFuture(errorFunction.apply(t));
+    }
+  }
+
   /**
    * Applies the retry policy in a non blocking manner by transforming the given {@code publisher} into one configured to apply
    * the retry logic.
@@ -48,7 +64,7 @@ public interface RetryPolicy {
    * @return a {@link Publisher} configured with the retry policy.
    * @since 4.0
    *
-   * @deprecated Use {@link #applyPolicy(Publisher, Predicate, Consumer, Function, Optional)} instead
+   * @deprecated Use {@link #applyPolicy(Publisher, Predicate, Consumer, Function, Scheduler)} instead
    */
   @Deprecated
   default <T> Publisher<T> applyPolicy(Publisher<T> publisher,

@@ -18,7 +18,7 @@ import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.disposeIfNeeded
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.initialiseIfNeeded;
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.startIfNeeded;
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.stopIfNeeded;
-import static org.mule.runtime.core.api.rx.Exceptions.checkedFunction;
+import static org.mule.runtime.core.api.rx.Exceptions.checkedBiConsumer;
 import static org.mule.runtime.core.internal.event.EventQuickCopy.quickCopy;
 import static org.mule.runtime.core.internal.interception.DefaultInterceptionEvent.INTERCEPTION_COMPONENT;
 import static org.mule.runtime.core.internal.interception.DefaultInterceptionEvent.INTERCEPTION_RESOLVED_CONTEXT;
@@ -38,8 +38,6 @@ import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils
 import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getCompletableOperationExecutorFactory;
 import static org.slf4j.LoggerFactory.getLogger;
 import static reactor.core.publisher.Flux.from;
-import static reactor.core.publisher.Mono.error;
-import static reactor.core.publisher.Mono.fromCallable;
 import static reactor.core.publisher.Mono.subscriberContext;
 import org.mule.runtime.api.component.Component;
 import org.mule.runtime.api.component.location.ComponentLocation;
@@ -60,10 +58,9 @@ import org.mule.runtime.core.api.processor.Processor;
 import org.mule.runtime.core.api.retry.policy.RetryPolicyTemplate;
 import org.mule.runtime.core.api.rx.Exceptions;
 import org.mule.runtime.core.api.streaming.CursorProviderFactory;
-import org.mule.runtime.core.internal.context.notification.DefaultFlowCallStack;
+import org.mule.runtime.core.api.util.func.CheckedBiConsumer;
 import org.mule.runtime.core.internal.exception.MessagingException;
 import org.mule.runtime.core.internal.message.InternalEvent;
-import org.mule.runtime.core.internal.policy.OperationExecutionFunction;
 import org.mule.runtime.core.internal.policy.OperationPolicy;
 import org.mule.runtime.core.internal.policy.PolicyManager;
 import org.mule.runtime.core.internal.processor.ParametersResolverProcessor;
@@ -71,6 +68,7 @@ import org.mule.runtime.core.privileged.event.BaseEventContext;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationProvider;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor.ExecutorCallback;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutorFactory;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
 import org.mule.runtime.extension.api.runtime.operation.Interceptor;
@@ -82,6 +80,7 @@ import org.mule.runtime.module.extension.internal.loader.java.property.Parameter
 import org.mule.runtime.module.extension.internal.runtime.DefaultExecutionContext;
 import org.mule.runtime.module.extension.internal.runtime.ExtensionComponent;
 import org.mule.runtime.module.extension.internal.runtime.LazyExecutionContext;
+import org.mule.runtime.module.extension.internal.runtime.execution.CoreEventSinkExecutorCallback;
 import org.mule.runtime.module.extension.internal.runtime.execution.OperationArgumentResolverFactory;
 import org.mule.runtime.module.extension.internal.runtime.objectbuilder.DefaultObjectBuilder;
 import org.mule.runtime.module.extension.internal.runtime.objectbuilder.ObjectBuilder;
@@ -104,7 +103,7 @@ import java.util.function.Supplier;
 
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
-import reactor.core.publisher.Mono;
+import reactor.core.publisher.SynchronousSink;
 import reactor.util.context.Context;
 
 /**
@@ -182,49 +181,52 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
   @Override
   public Publisher<CoreEvent> apply(Publisher<CoreEvent> publisher) {
     return from(publisher)
-        .flatMap(event -> subscriberContext()
-            .map(ctx -> addContextToEvent(event, ctx)))
-        .flatMap(checkedFunction(event -> {
+        .flatMap(event -> subscriberContext().map(ctx -> addContextToEvent(event, ctx)))
+        .handle(checkedBiConsumer((event, sink) -> {
+
           final Optional<ConfigurationInstance> configuration = resolveConfiguration(event);
           final Map<String, Object> resolutionResult = getResolutionResult(event, configuration);
           final PrecalculatedExecutionContextAdapter<T> precalculatedContext = getPrecalculatedContext(event);
           final Scheduler currentScheduler = ((InternalEvent) event).getInternalParameter(PROCESSOR_SCHEDULER_CONTEXT_KEY);
 
-          OperationExecutionFunction operationExecutionFunction;
+          // TODO: This whole concept of the lambda executor is only needed in the old approach because of the reactor/policy crap
+          // review if we can get rid of this
+          CheckedBiConsumer<Map<String, Object>, CoreEvent> executor;
 
           if (getLocation() != null && isInterceptedComponent(getLocation(), (InternalEvent) event)
               && precalculatedContext != null) {
             ExecutionContextAdapter<T> operationContext = getPrecalculatedContext(event);
 
-            operationExecutionFunction = (parameters, operationEvent) -> {
+            executor = (parameters, operationEvent) -> {
               operationContext.setCurrentScheduler(currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
-              return doProcessWithErrorMapping(operationEvent, operationContext);
+              executeOperation(operationEvent, operationContext, sink);
             };
           } else {
-            operationExecutionFunction = (parameters, operationEvent) -> {
+            executor = (parameters, operationEvent) -> {
               ExecutionContextAdapter<T> operationContext;
               try {
                 operationContext = createExecutionContext(configuration, parameters, operationEvent,
                                                           currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
-              } catch (MuleException e) {
-                return error(e);
+                executeOperation(operationEvent, operationContext, sink);
+              } catch (Throwable t) {
+                // this should be impossible... but better safe than zorry
+                sink.error(t);
               }
-              return doProcessWithErrorMapping(operationEvent, operationContext);
             };
           }
 
-          if (getLocation() != null) {
-            ((DefaultFlowCallStack) event.getFlowCallStack())
-                .setCurrentProcessorPath(resolvedProcessorRepresentation);
-            return Mono.from(policyManager
-                .createOperationPolicy(this, event, () -> resolutionResult)
-                .process(event, operationExecutionFunction, () -> resolutionResult, getLocation()));
-          } else {
-            // If this operation has no component location then it is internal. Don't apply policies on internal operations.
+          //TODO: bring policies back to life
+          //if (getLocation() != null) {
+          //  ((DefaultFlowCallStack) event.getFlowCallStack())
+          //      .setCurrentProcessorPath(resolvedProcessorRepresentation);
+          //  return Mono.from(policyManager
+          //      .createOperationPolicy(this, event, () -> resolutionResult)
+          //      .process(event, operationExecutionFunction, () -> resolutionResult, getLocation()));
+          //} else {
+          // If this operation has no component location then it is internal. Don't apply policies on internal operations.
 
-            //TODO: experiment with doing a handle() instead
-            return Mono.from(operationExecutionFunction.execute(resolutionResult, event));
-          }
+          executor.accept(resolutionResult, event);
+          //}
         }));
   }
 
@@ -265,46 +267,33 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
     }
   }
 
-  /**
-   * While a hook in reactor is used to map Throwable to MessagingException when an error occurs this does not cover the case
-   * where an error is explicitly triggered via a Sink such as such as when using Mono.create in ReactorCompletionCallback rather
-   * than being thrown by a reactor operator. Although changes could be made to Mule to cater for this in
-   * AbstractMessageProcessorChain, this is not trivial given processor interceptors and a potent performance overhead associated
-   * with the addition of many additional flatMaps. It would be slightly clearer to create the MessagingException in
-   * ReactorCompletionCallback where Mono.error is used but we don't have a reference to the processor there.
-   */
-  private Publisher<CoreEvent> doProcessWithErrorMapping(CoreEvent operationEvent, ExecutionContextAdapter<T> operationContext) {
-    return doProcess(operationEvent, operationContext)
-        .onErrorMap(e -> !(e instanceof MessagingException), e -> new MessagingException(operationEvent, e, this));
-  }
-
   private PrecalculatedExecutionContextAdapter<T> getPrecalculatedContext(CoreEvent event) {
     return ((InternalEvent) event).getInternalParameter(INTERCEPTION_RESOLVED_CONTEXT);
   }
 
-  protected Mono<CoreEvent> doProcess(CoreEvent event, ExecutionContextAdapter<T> operationContext) {
-    return executeOperation(operationContext)
-        .map(value -> asReturnValue(operationContext, value))
-        .switchIfEmpty(fromCallable(() -> asReturnValue(operationContext, null)))
-        .onErrorMap(Exceptions::unwrap);
+  protected void executeOperation(CoreEvent event,
+                                  ExecutionContextAdapter<T> operationContext,
+                                  SynchronousSink<CoreEvent> sink) {
+
+    ExecutorCallback callback =
+        new CoreEventSinkExecutorCallback(sink,
+                                          result -> returnDelegate.asReturnValue(result, operationContext),
+                                          t -> mapError(t, event));
+
+    executionMediator.execute(componentExecutor, operationContext, callback);
   }
 
-  private CoreEvent asReturnValue(ExecutionContextAdapter<T> operationContext, Object value) {
-    if (value instanceof CoreEvent) {
-      return (CoreEvent) value;
-    } else {
-      return returnDelegate.asReturnValue(value, operationContext);
+  private Throwable mapError(Throwable t, CoreEvent event) {
+    t = Exceptions.unwrap(t);
+    if (!(t instanceof MessagingException)) {
+      t = new MessagingException(event, t, this);
     }
-  }
-
-  private Mono<Object> executeOperation(ExecutionContextAdapter operationContext) {
-    return Mono.from(executionMediator.execute(componentExecutor, operationContext));
+    return t;
   }
 
   private ExecutionContextAdapter<T> createExecutionContext(Optional<ConfigurationInstance> configuration,
                                                             Map<String, Object> resolvedParameters,
-                                                            CoreEvent event, Scheduler currentScheduler)
-      throws MuleException {
+                                                            CoreEvent event, Scheduler currentScheduler) {
 
     return new DefaultExecutionContext<>(extensionModel, configuration, resolvedParameters, componentModel, event,
                                          getCursorProviderFactory(), streamingManager, this, retryPolicyTemplate,

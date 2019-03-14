@@ -23,15 +23,14 @@ import org.mule.runtime.module.extension.internal.runtime.AbstractExecutionConte
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
-class PrecalculatedExecutionContextAdapter<T extends ComponentModel> extends AbstractExecutionContextAdapterDecorator<T> {
+class PrecalculatedExecutionContextAdapter<M extends ComponentModel> extends AbstractExecutionContextAdapterDecorator<M> {
 
   private Optional<ConfigurationInstance> configuration;
-  private CompletableComponentExecutor<T> operation;
+  private CompletableComponentExecutor<M> operation;
 
-  PrecalculatedExecutionContextAdapter(ExecutionContextAdapter<T> decorated, CompletableComponentExecutor<T> operation) {
+  PrecalculatedExecutionContextAdapter(ExecutionContextAdapter<M> decorated, CompletableComponentExecutor<M> operation) {
     super(decorated);
 
     configuration = decorated.getConfiguration().map(config -> {
@@ -76,8 +75,8 @@ class PrecalculatedExecutionContextAdapter<T extends ComponentModel> extends Abs
     }
 
     @Override
-    public CompletableFuture<Object> execute(ExecutionContext<M> executionContext) {
-      return decorated.execute(executionContext);
+    public void execute(ExecutionContext<M> executionContext, ExecutorCallback callback) {
+      decorated.execute(executionContext, callback);
     }
 
     @Override
@@ -86,6 +85,7 @@ class PrecalculatedExecutionContextAdapter<T extends ComponentModel> extends Abs
     }
 
   }
+
 
   private static class DefaultExecutionContextConfigurationDecorator implements ExecutionContextConfigurationDecorator {
 
@@ -137,6 +137,7 @@ class PrecalculatedExecutionContextAdapter<T extends ComponentModel> extends Abs
       return decorated;
     }
   }
+
 
   private static class InterceptorDecorator<M extends ComponentModel> implements Interceptor<M> {
 

@@ -18,16 +18,20 @@ import static reactor.core.publisher.Mono.just;
 import static reactor.core.scheduler.Schedulers.fromExecutorService;
 import static reactor.retry.Retry.onlyIf;
 import org.mule.runtime.api.scheduler.Scheduler;
+import org.mule.runtime.api.util.LazyValue;
 import org.mule.runtime.core.api.retry.policy.PolicyStatus;
 import org.mule.runtime.core.api.retry.policy.RetryPolicy;
 import org.mule.runtime.core.internal.util.rx.ConditionalExecutorServiceDecorator;
 
 import java.time.Duration;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
+import net.jodah.failsafe.Failsafe;
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import reactor.core.publisher.Mono;
@@ -54,6 +58,46 @@ public class SimpleRetryPolicy implements RetryPolicy {
   }
 
   @Override
+  public <T> CompletableFuture<T> applyPolicy(Callable<T> callable,
+                                              Predicate<Throwable> shouldRetry,
+                                              Consumer<Throwable> onExhausted,
+                                              Function<Throwable, Throwable> errorFunction,
+                                              Scheduler retryScheduler) {
+
+    net.jodah.failsafe.RetryPolicy<Object> actingPolicy = new net.jodah.failsafe.RetryPolicy<>()
+        .handleIf(shouldRetry)
+        .withMaxRetries(count != RETRY_COUNT_FOREVER ? count - 1 : -1)
+        .withDelay(frequency)
+        .onRetriesExceeded(listener -> {
+          LOGGER.info("Retry attempts exhausted. Failing...");
+          Throwable t = errorFunction.apply(listener.getFailure());
+          onExhausted.accept(t);
+        });
+
+    final IsFirst first = new IsFirst();
+    final LazyValue<Boolean> isTransanctional = new LazyValue<>(() -> isTransactionActive());
+
+    return Failsafe.with(actingPolicy)
+        .with(new ConditionalExecutorServiceDecorator(retryScheduler, s -> first.isFirst() && isTransanctional.get()))
+        .getAsync(callable::call);
+  }
+
+  private class IsFirst {
+
+    private boolean first = true;
+
+    public boolean isFirst() {
+      if (first) {
+        first = false;
+        return true;
+      }
+
+      return false;
+    }
+  }
+
+
+  @Override
   public <T> Publisher<T> applyPolicy(Publisher<T> publisher,
                                       Predicate<Throwable> shouldRetry,
                                       Consumer<Throwable> onExhausted,
@@ -68,8 +112,9 @@ public class SimpleRetryPolicy implements RetryPolicy {
           retry = retry.retryMax(count - 1);
         }
 
+        final LazyValue<Boolean> isTransanctional = new LazyValue<>(() -> isTransactionActive());
         reactor.core.scheduler.Scheduler reactorRetryScheduler =
-            fromExecutorService(new ConditionalExecutorServiceDecorator(retryScheduler, s -> isTransactionActive()));
+            fromExecutorService(new ConditionalExecutorServiceDecorator(retryScheduler, s -> isTransanctional.get()));
 
         Mono<T> retryMono = from(publisher)
             .retryWhen(retry.withBackoffScheduler(reactorRetryScheduler)

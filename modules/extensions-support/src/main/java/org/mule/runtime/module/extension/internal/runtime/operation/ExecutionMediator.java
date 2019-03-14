@@ -8,10 +8,10 @@ package org.mule.runtime.module.extension.internal.runtime.operation;
 
 import org.mule.runtime.api.meta.model.ComponentModel;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor.ExecutorCallback;
 import org.mule.runtime.extension.api.runtime.operation.Interceptor;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 
-import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 
 /**
@@ -25,14 +25,16 @@ import reactor.core.publisher.Mono;
  *
  * @since 4.0
  */
-public interface ExecutionMediator<T extends ComponentModel> {
+public interface ExecutionMediator<M extends ComponentModel> {
 
   /**
    * Coordinates the execution of the {@code executor} using the given {@code context}
    *
    * @param executor an {@link CompletableComponentExecutor}
    * @param context an {@link ExecutionContextAdapter}
-   * @return a {@link Mono} with the operation's result
+   * @param callback
    */
-  Publisher<Object> execute(CompletableComponentExecutor<T> executor, ExecutionContextAdapter<T> context);
+  void execute(CompletableComponentExecutor<M> executor,
+               ExecutionContextAdapter<M> context,
+               ExecutorCallback callback);
 }

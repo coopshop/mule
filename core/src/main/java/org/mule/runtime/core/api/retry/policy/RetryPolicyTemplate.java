@@ -9,21 +9,21 @@ package org.mule.runtime.core.api.retry.policy;
 
 import static java.util.function.Function.identity;
 import static org.mule.runtime.core.internal.util.rx.ImmediateScheduler.IMMEDIATE_SCHEDULER;
-
 import org.mule.api.annotation.NoImplement;
 import org.mule.runtime.api.scheduler.Scheduler;
 import org.mule.runtime.core.api.retry.RetryCallback;
 import org.mule.runtime.core.api.retry.RetryContext;
 import org.mule.runtime.core.api.retry.RetryNotifier;
 
-import org.reactivestreams.Publisher;
-
 import java.util.Map;
-import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+
+import org.reactivestreams.Publisher;
 
 
 /**
@@ -63,7 +63,7 @@ public interface RetryPolicyTemplate {
    * @return a {@link Publisher} configured with the retry policy.
    * @since 4.0
    *
-   * @deprecated Use {@link #applyPolicy(Publisher, Optional)} instead
+   * @deprecated Use {@link #applyPolicy(Publisher, Scheduler)} instead
    */
   @Deprecated
   default <T> Publisher<T> applyPolicy(Publisher<T> publisher) {
@@ -97,7 +97,7 @@ public interface RetryPolicyTemplate {
    * @return a {@link Publisher} configured with the retry policy.
    * @since 4.0
    *
-   * @deprecated Use {@link #applyPolicy(Publisher, Predicate, Consumer, Function, Optional)} instead
+   * @deprecated Use {@link #applyPolicy(Publisher, Predicate, Consumer, Function, Scheduler)} instead
    */
   @Deprecated
   default <T> Publisher<T> applyPolicy(Publisher<T> publisher,
@@ -126,5 +126,13 @@ public interface RetryPolicyTemplate {
                                        Scheduler retryScheduler) {
     return createRetryInstance().applyPolicy(publisher, shouldRetry, onExhausted, errorFunction, retryScheduler);
 
+  }
+
+  default <T> CompletableFuture<T> applyPolicy(Callable<T> callable,
+                                               Predicate<Throwable> shouldRetry,
+                                               Consumer<Throwable> onExhausted,
+                                               Function<Throwable, Throwable> errorFunction,
+                                               Scheduler retryScheduler) {
+    return createRetryInstance().applyPolicy(callable, shouldRetry, onExhausted, errorFunction, retryScheduler);
   }
 }
