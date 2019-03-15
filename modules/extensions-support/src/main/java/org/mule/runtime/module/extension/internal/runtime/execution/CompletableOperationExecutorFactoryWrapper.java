@@ -8,8 +8,6 @@ package org.mule.runtime.module.extension.internal.runtime.execution;
 
 import static java.util.Collections.emptyMap;
 import org.mule.runtime.api.meta.model.ComponentModel;
-import org.mule.runtime.api.meta.model.construct.ConstructModel;
-import org.mule.runtime.api.meta.model.operation.OperationModel;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutorFactory;
 import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
@@ -51,19 +49,7 @@ public final class CompletableOperationExecutorFactoryWrapper<T extends Componen
   @Override
   public CompletableComponentExecutor<T> createExecutor(T componentModel, Map<String, Object> parameters) {
     CompletableComponentExecutor<T> executor = delegate.createExecutor(componentModel, parameters);
-    if (isJavaNonBlocking(componentModel, executor)) {
-      executor = new NonBlockingCompletableExecutorWrapper<>(executor);
-    }
-
     return new InterceptableOperationExecutorWrapper(executor, interceptors);
-  }
-
-  private boolean isJavaNonBlocking(T componentModel, CompletableComponentExecutor<T> executor) {
-    if (componentModel instanceof OperationModel && !((OperationModel) componentModel).isBlocking()) {
-      return executor instanceof ReflectiveMethodOperationExecutor;
-    } else {
-      return componentModel instanceof ConstructModel;
-    }
   }
 
   @Override

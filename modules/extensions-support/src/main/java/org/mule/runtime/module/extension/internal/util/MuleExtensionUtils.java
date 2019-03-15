@@ -36,6 +36,7 @@ import org.mule.runtime.api.meta.model.ModelProperty;
 import org.mule.runtime.api.meta.model.XmlDslModel;
 import org.mule.runtime.api.meta.model.config.ConfigurationModel;
 import org.mule.runtime.api.meta.model.connection.ConnectionProviderModel;
+import org.mule.runtime.api.meta.model.construct.ConstructModel;
 import org.mule.runtime.api.meta.model.declaration.fluent.BaseDeclaration;
 import org.mule.runtime.api.meta.model.declaration.fluent.ExtensionDeclaration;
 import org.mule.runtime.api.meta.model.operation.OperationModel;
@@ -402,6 +403,14 @@ public class MuleExtensionUtils {
                                                                                         .getSimpleName())));
 
     return new CompletableOperationExecutorFactoryWrapper<>(executorFactory, createInterceptors(operationModel));
+  }
+
+  public static boolean isNonBlocking(ComponentModel model) {
+    if (model instanceof OperationModel) {
+      return !((OperationModel) model).isBlocking();
+    }
+
+    return model instanceof ConstructModel;
   }
 
   /**

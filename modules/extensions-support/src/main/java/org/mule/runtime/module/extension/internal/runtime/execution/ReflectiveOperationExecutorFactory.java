@@ -9,6 +9,7 @@ package org.mule.runtime.module.extension.internal.runtime.execution;
 import static org.mule.runtime.api.i18n.I18nMessageFactory.createStaticMessage;
 import static org.mule.runtime.api.util.Preconditions.checkArgument;
 import static org.mule.runtime.module.extension.api.util.MuleExtensionUtils.getInitialiserEvent;
+import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.isNonBlocking;
 import org.mule.runtime.api.exception.MuleRuntimeException;
 import org.mule.runtime.api.meta.model.ComponentModel;
 import org.mule.runtime.core.api.event.CoreEvent;
@@ -60,6 +61,10 @@ public final class ReflectiveOperationExecutorFactory<T, M extends ComponentMode
       if (initialiserEvent != null) {
         ((BaseEventContext) initialiserEvent.getContext()).success();
       }
+    }
+
+    if (isNonBlocking(operationModel)) {
+      return new NonBlockingReflectiveMethodOperationExecutor<>(operationModel, operationMethod, delegate);
     }
 
     return new ReflectiveMethodOperationExecutor<>(operationModel, operationMethod, delegate);
