@@ -11,7 +11,6 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.emptySet;
 import static java.util.Optional.empty;
 import static java.util.Optional.of;
-import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.apache.commons.lang3.StringUtils.EMPTY;
 import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,6 +29,7 @@ import static org.mule.runtime.api.meta.model.parameter.ParameterRole.CONTENT;
 import static org.mule.runtime.api.util.ExtensionModelTestUtils.visitableMock;
 import static org.mule.runtime.core.api.config.MuleProperties.OBJECT_CONNECTION_MANAGER;
 import static org.mule.runtime.core.api.config.MuleProperties.OBJECT_STREAMING_MANAGER;
+import static org.mule.tck.MuleTestUtils.stubComponentExecutor;
 import static org.mule.tck.util.MuleContextUtils.eventBuilder;
 import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.getDefaultCursorStreamProviderFactory;
 import static org.mule.test.module.extension.internal.util.ExtensionsTestUtils.mockClassLoaderModelProperty;
@@ -89,6 +89,7 @@ import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationProvider;
 import org.mule.runtime.extension.api.runtime.exception.ExceptionHandlerFactory;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
+import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor.ExecutorCallback;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutorFactory;
 import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContextAdapter;
 import org.mule.runtime.module.extension.internal.loader.java.property.FieldOperationParameterModelProperty;
@@ -141,6 +142,9 @@ public abstract class AbstractOperationMessageProcessorTestCase extends Abstract
 
   @Mock(extraInterfaces = {Lifecycle.class, MuleContextAware.class}, lenient = true)
   protected CompletableComponentExecutor operationExecutor;
+
+  @Mock(lenient = true)
+  protected ExecutorCallback executorCallback;
 
   @Mock(answer = RETURNS_DEEP_STUBS, lenient = true)
   protected ResolverSet resolverSet;
@@ -287,7 +291,8 @@ public abstract class AbstractOperationMessageProcessorTestCase extends Abstract
     when(operationModel.getModelProperty(InterceptorsModelProperty.class)).thenReturn(empty());
 
     when(operationExecutorFactory.createExecutor(same(operationModel), anyMap())).thenReturn(operationExecutor);
-    when(operationExecutor.execute(any())).thenReturn(completedFuture(""));
+
+    stubComponentExecutor(operationExecutor, "");
 
     when(extensionManager.getExtensions()).thenReturn(Collections.singleton(extensionModel));
 

@@ -7,7 +7,6 @@
 package org.mule.runtime.module.extension.internal.runtime;
 
 import static java.util.Optional.of;
-import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.junit.Assert.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
@@ -68,7 +67,7 @@ public class ComponentMessageProcessorTestCase extends AbstractMuleContextTestCa
 
     componentModel = mock(ComponentModel.class, withSettings().extraInterfaces(EnrichableModel.class));
     when((componentModel).getModelProperty(CompletableComponentExecutorModelProperty.class))
-        .thenReturn(of(new CompletableComponentExecutorModelProperty((cp, params) -> ctx -> completedFuture(response))));
+        .thenReturn(of(new CompletableComponentExecutorModelProperty((cp, p) -> (ctx, callback) -> callback.complete(response))));
     resolverSet = mock(ResolverSet.class);
 
     extensionManager = mock(ExtensionManager.class);

@@ -38,12 +38,12 @@ import org.mule.runtime.module.extension.api.runtime.privileged.ExecutionContext
 import org.mule.runtime.module.extension.internal.runtime.config.MutableConfigurationStats;
 import org.mule.runtime.module.extension.internal.runtime.exception.ExceptionHandlerManager;
 import org.mule.runtime.module.extension.internal.runtime.exception.ModuleExceptionHandler;
-import org.mule.runtime.module.extension.internal.runtime.execution.AbstractExecutionCallbackDecorator;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -64,7 +64,7 @@ import org.slf4j.LoggerFactory;
  * In case of operation failure, it will execute the {@link Interceptor#onError(ExecutionContext, Throwable)} method of all the
  * available interceptors. If the operation fails with {@link ConnectionException}, then a retry might be attempted depending on
  * the configured {@link RetryPolicyTemplate}. Notice that if a retry is attempted, the entire cycle of interception (before,
- * onSuccess/onError, after) will be fired again.
+ * onSuccess/interceptError, after) will be fired again.
  *
  * @since 4.0
  */
@@ -125,57 +125,33 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
     }
   }
 
-  private class InterceptableExecutionCallbackDecorator extends AbstractExecutionCallbackDecorator {
+  private class FutureExecutionCallbackDecorator implements ExecutorCallback {
 
-    private final ExecutionContextAdapter<M> context;
-    private final List<Interceptor> interceptors;
-    private final MutableConfigurationStats stats;
-    private final List<Interceptor> executedInterceptors;
+    private final CompletableFuture<Object> future;
+    private final Reference<Object> valueReference;
 
-    public InterceptableExecutionCallbackDecorator(
-                                                   ExecutorCallback delegate,
-                                                   ExecutionContextAdapter<M> context,
-                                                   List<Interceptor> interceptors,
-                                                   MutableConfigurationStats stats,
-                                                   List<Interceptor> executedInterceptors) {
-
-      super(delegate);
-      this.context = context;
-      this.interceptors = interceptors;
-      this.stats = stats;
-      this.executedInterceptors = executedInterceptors;
+    private FutureExecutionCallbackDecorator(CompletableFuture<Object> future, Reference<Object> valueReference) {
+      this.future = future;
+      this.valueReference = valueReference;
     }
 
     @Override
     public void complete(Object value) {
-      try {
-        value = transform(context, value);
-        onSuccess(context, value, interceptors);
-        if (stats != null) {
-          stats.discountInflightOperation();
-        }
-        super.complete(value);
-      } finally {
-        doAfter(value);
-      }
+      valueReference.set(value);
+      future.complete(value);
     }
 
     @Override
     public void error(Throwable e) {
-      try {
-        e = mapError(context, interceptors, e);
-        super.error(e);
-      } finally {
-        doAfter(null);
-      }
+      future.completeExceptionally(e);
     }
 
-    private void doAfter(Object value) {
-      try {
-        after(context, value, executedInterceptors);
-      } finally {
-        executedInterceptors.clear();
+    public Object getValue() {
+      if (!future.isDone()) {
+        throw new IllegalStateException("Operation is not yet finished");
       }
+
+      return valueReference.get();
     }
   }
 
@@ -186,40 +162,67 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
                                        ExecutorCallback callback) {
 
     List<Interceptor> executedInterceptors = new ArrayList<>(interceptors.size());
-    final ExecutorCallback interceptedCallback = new InterceptableExecutionCallbackDecorator(
-                                                                                             callback,
-                                                                                             context,
-                                                                                             interceptors,
-                                                                                             stats.orElse(null),
-                                                                                             executedInterceptors);
+    Reference<Object> result = new Reference<>();
 
     getRetryPolicyTemplate(context).applyPolicy(
-                                                () -> {
+        () -> {
+          CompletableFuture<Object> future = new CompletableFuture<>();
+          ExecutorCallback futureCallback = new FutureExecutionCallbackDecorator(future, result);
 
-                                                  // If the operation is retried, then the interceptors need to be executed again,
-                                                  InterceptorsExecutionResult beforeExecutionResult =
-                                                      before(context, interceptors);
-                                                  if (beforeExecutionResult.isOk()) {
-                                                    executedInterceptors.addAll(interceptors);
-                                                    withContextClassLoader(getClassLoader(context.getExtensionModel()),
-                                                                           () -> executor.execute(context, interceptedCallback));
-                                                  } else {
-                                                    executedInterceptors.addAll(beforeExecutionResult.getExecutedInterceptors());
-                                                    interceptedCallback.error(beforeExecutionResult.getThrowable());
-                                                  }
+          // If the operation is retried, then the interceptors need to be executed again,
+          InterceptorsExecutionResult beforeExecutionResult = before(context, interceptors);
+          if (beforeExecutionResult.isOk()) {
+            executedInterceptors.addAll(interceptors);
+            withContextClassLoader(getClassLoader(context.getExtensionModel()),
+                                   () -> executor.execute(context, futureCallback));
+          } else {
+            executedInterceptors.addAll(beforeExecutionResult.getExecutedInterceptors());
+            future.completeExceptionally(beforeExecutionResult.getThrowable());
+          }
 
-                                                  return null;
-                                                },
-                                                e -> extractConnectionException(e).isPresent(),
-                                                e -> stats.ifPresent(s -> s.discountInflightOperation()),
-                                                identity(),
-                                                context.getCurrentScheduler());
+          return future;
+        },
+        e -> extractConnectionException(e).isPresent(),
+        e -> interceptError(context, e, interceptors),
+        e -> {},
+        identity(),
+        context.getCurrentScheduler())
+        .whenComplete((v, e) -> {
+          Object value = result.get();
+          try {
+            if (e == null) {
+              value = transform(context, value);
+              onSuccess(context, value, interceptors);
+              callback.complete(value);
+            } else {
+              handleError(e, context, interceptors, callback);
+            }
+          } catch (Throwable t) {
+            handleError(t, context, interceptors, callback);
+          } finally {
+            try {
+              after(context, value, executedInterceptors);
+            } finally {
+              stats.ifPresent(s -> s.discountInflightOperation());
+              executedInterceptors.clear();
+            }
+          }
+        });
   }
 
-  private Throwable mapError(ExecutionContextAdapter context, List<Interceptor> interceptors, Throwable e) {
+  private void handleError(Throwable e, ExecutionContextAdapter context, List<Interceptor> interceptors,
+                           ExecutorCallback callback) {
+    try {
+      e = mapError(e, context, interceptors);
+    } finally {
+      callback.error(e);
+    }
+  }
+
+  private Throwable mapError(Throwable e, ExecutionContextAdapter context, List<Interceptor> interceptors) {
     e = exceptionEnricherManager.process(e);
     e = moduleExceptionHandler.processException(e);
-    e = onError(context, e, interceptors);
+    e = interceptError(context, e, interceptors);
 
     return e;
   }
@@ -250,11 +253,11 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
   private void onSuccess(ExecutionContext executionContext, Object result, List<Interceptor> interceptors) {
     intercept(interceptors, interceptor -> interceptor.onSuccess(executionContext, result),
               interceptor -> format(
-                                    "Interceptor %s threw exception executing 'onSuccess' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result will be returned",
-                                    interceptor));
+                  "Interceptor %s threw exception executing 'onSuccess' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result will be returned",
+                  interceptor));
   }
 
-  private Throwable onError(ExecutionContext executionContext, Throwable e, List<Interceptor> interceptors) {
+  private Throwable interceptError(ExecutionContext executionContext, Throwable e, List<Interceptor> interceptors) {
     Reference<Throwable> exceptionHolder = new Reference<>(e);
 
     intercept(interceptors, interceptor -> {
@@ -263,8 +266,8 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
         exceptionHolder.set(decoratedException);
       }
     }, interceptor -> format(
-                             "Interceptor %s threw exception executing 'onError' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's exception will be returned",
-                             interceptor));
+        "Interceptor %s threw exception executing 'interceptError' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's exception will be returned",
+        interceptor));
 
     return exceptionHolder.get();
   }
@@ -272,8 +275,8 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
   void after(ExecutionContext executionContext, Object result, List<Interceptor> interceptors) {
     intercept(interceptors, interceptor -> interceptor.after(executionContext, result),
               interceptor -> format(
-                                    "Interceptor %s threw exception executing 'after' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result be returned",
-                                    interceptor));
+                  "Interceptor %s threw exception executing 'after' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result be returned",
+                  interceptor));
   }
 
   private void intercept(List<Interceptor> interceptors, Consumer<Interceptor> closure,

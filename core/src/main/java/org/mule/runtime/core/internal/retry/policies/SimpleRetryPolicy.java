@@ -24,12 +24,12 @@ import org.mule.runtime.core.api.retry.policy.RetryPolicy;
 import org.mule.runtime.core.internal.util.rx.ConditionalExecutorServiceDecorator;
 
 import java.time.Duration;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import net.jodah.failsafe.Failsafe;
 import org.reactivestreams.Publisher;
@@ -58,16 +58,18 @@ public class SimpleRetryPolicy implements RetryPolicy {
   }
 
   @Override
-  public <T> CompletableFuture<T> applyPolicy(Callable<T> callable,
+  public <T> CompletableFuture<T> applyPolicy(Supplier<CompletableFuture<T>> futureSupplier,
                                               Predicate<Throwable> shouldRetry,
+                                              Consumer<Throwable> onRetry,
                                               Consumer<Throwable> onExhausted,
                                               Function<Throwable, Throwable> errorFunction,
                                               Scheduler retryScheduler) {
 
     net.jodah.failsafe.RetryPolicy<Object> actingPolicy = new net.jodah.failsafe.RetryPolicy<>()
         .handleIf(shouldRetry)
-        .withMaxRetries(count != RETRY_COUNT_FOREVER ? count - 1 : -1)
+        .withMaxRetries(count != RETRY_COUNT_FOREVER ? count : -1)
         .withDelay(frequency)
+        .onRetry(listener -> onRetry.accept(listener.getLastFailure()))
         .onRetriesExceeded(listener -> {
           LOGGER.info("Retry attempts exhausted. Failing...");
           Throwable t = errorFunction.apply(listener.getFailure());
@@ -79,7 +81,7 @@ public class SimpleRetryPolicy implements RetryPolicy {
 
     return Failsafe.with(actingPolicy)
         .with(new ConditionalExecutorServiceDecorator(retryScheduler, s -> first.isFirst() && isTransanctional.get()))
-        .getAsync(callable::call);
+        .getStageAsync(futureSupplier::get);
   }
 
   private class IsFirst {
