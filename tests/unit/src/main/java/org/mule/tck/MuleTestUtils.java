@@ -248,8 +248,8 @@ public final class MuleTestUtils {
     return stubComponentExecutor(mock(CompletableComponentExecutor.class, withSettings().lenient()), returnValue);
   }
 
-  public static <M extends ComponentModel> CompletableComponentExecutor<M> stubComponentExecutor
-      (CompletableComponentExecutor<M> executor, Object returnValue) {
+  public static <M extends ComponentModel> CompletableComponentExecutor<M> stubComponentExecutor(CompletableComponentExecutor<M> executor,
+                                                                                                 Object returnValue) {
     doAnswer(invocation -> {
       CompletableComponentExecutor.ExecutorCallback callback = invocation.getArgument(1);
       callback.complete(returnValue);
@@ -259,8 +259,8 @@ public final class MuleTestUtils {
     return executor;
   }
 
-  public static <M extends ComponentModel> CompletableComponentExecutor<M> stubFailingComponentExecutor
-      (CompletableComponentExecutor<M> executor, Throwable t) {
+  public static <M extends ComponentModel> CompletableComponentExecutor<M> stubFailingComponentExecutor(CompletableComponentExecutor<M> executor,
+                                                                                                        Throwable t) {
     doAnswer(invocation -> {
       CompletableComponentExecutor.ExecutorCallback callback = invocation.getArgument(1);
       callback.error(t);

@@ -133,7 +133,7 @@ public final class SoapOperationExecutor implements CompletableComponentExecutor
   private String getOperation(ExecutionContext<OperationModel> context) {
     return (String) getParam(context, OPERATION_PARAM)
         .orElseThrow(
-            () -> new IllegalStateException("Execution Context does not have the required operation parameter"));
+                     () -> new IllegalStateException("Execution Context does not have the required operation parameter"));
   }
 
   private <T> Optional<T> getParam(ExecutionContext<OperationModel> context, String param) {
@@ -144,11 +144,11 @@ public final class SoapOperationExecutor implements CompletableComponentExecutor
     String hs = IOUtils.toString(headers);
     BindingContext context = BindingContext.builder().addBinding("payload", new TypedValue<>(hs, DataType.XML_STRING)).build();
     return expressionExecutor.evaluate("%dw 2.0 \n"
-                                           + "output application/java \n"
-                                           + "---\n"
-                                           + "payload.headers mapObject (value, key) -> {\n"
-                                           + "    '$key' : write((key): value, \"application/xml\")\n"
-                                           + "}", context).getValue();
+        + "output application/java \n"
+        + "---\n"
+        + "payload.headers mapObject (value, key) -> {\n"
+        + "    '$key' : write((key): value, \"application/xml\")\n"
+        + "}", context).getValue();
   }
 
   private Map<String, SoapAttachment> toSoapAttachments(Map<String, TypedValue<?>> attachments)

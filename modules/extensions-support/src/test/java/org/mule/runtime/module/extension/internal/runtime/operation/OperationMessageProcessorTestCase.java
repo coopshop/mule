@@ -133,7 +133,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     ArgumentCaptor<ExecutionContext> operationContextCaptor = ArgumentCaptor.forClass(ExecutionContext.class);
     messageProcessor.process(event);
 
-    verify(operationExecutor).execute(operationContextCaptor.capture(), executorCallback);
+    verify(operationExecutor).execute(operationContextCaptor.capture(), any());
     ExecutionContext<ComponentModel> executionContext = operationContextCaptor.getValue();
 
     assertThat(executionContext, is(instanceOf(ExecutionContextAdapter.class)));
@@ -386,7 +386,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     ArgumentCaptor<ExecutionContext> operationContextCaptor = ArgumentCaptor.forClass(ExecutionContext.class);
     messageProcessor.process(event);
 
-    verify(operationExecutor).execute(operationContextCaptor.capture(), executorCallback);
+    verify(operationExecutor).execute(operationContextCaptor.capture(), any());
 
     ExecutionContext<OperationModel> executionContext = operationContextCaptor.getValue();
 
@@ -440,7 +440,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     messageProcessor.process(quickCopy(event, ImmutableMap.of(INTERCEPTION_RESOLVED_CONTEXT, context.get(),
                                                               "core:interceptionComponent", messageProcessor)));
 
-    verify(operationExecutor).execute(context.get(), any());
+    verify(operationExecutor).execute(same(context.get()), any());
     messageProcessor.disposeResolvedParameters(context.get());
   }
 
@@ -459,7 +459,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
 
     messageProcessor.process(quickCopy(event, singletonMap(INTERCEPTION_RESOLVED_CONTEXT, context.get())));
 
-    verify(operationExecutor, never()).execute(any(), any());
+    verify(operationExecutor, never()).execute(same(context.get()), any());
     verify(operationExecutor).execute(any(), any());
     messageProcessor.disposeResolvedParameters(context.get());
   }

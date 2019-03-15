@@ -165,28 +165,31 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
     Reference<Object> result = new Reference<>();
 
     getRetryPolicyTemplate(context).applyPolicy(
-        () -> {
-          CompletableFuture<Object> future = new CompletableFuture<>();
-          ExecutorCallback futureCallback = new FutureExecutionCallbackDecorator(future, result);
+                                                () -> {
+                                                  CompletableFuture<Object> future = new CompletableFuture<>();
+                                                  ExecutorCallback futureCallback =
+                                                      new FutureExecutionCallbackDecorator(future, result);
 
-          // If the operation is retried, then the interceptors need to be executed again,
-          InterceptorsExecutionResult beforeExecutionResult = before(context, interceptors);
-          if (beforeExecutionResult.isOk()) {
-            executedInterceptors.addAll(interceptors);
-            withContextClassLoader(getClassLoader(context.getExtensionModel()),
-                                   () -> executor.execute(context, futureCallback));
-          } else {
-            executedInterceptors.addAll(beforeExecutionResult.getExecutedInterceptors());
-            future.completeExceptionally(beforeExecutionResult.getThrowable());
-          }
+                                                  // If the operation is retried, then the interceptors need to be executed again,
+                                                  InterceptorsExecutionResult beforeExecutionResult =
+                                                      before(context, interceptors);
+                                                  if (beforeExecutionResult.isOk()) {
+                                                    executedInterceptors.addAll(interceptors);
+                                                    withContextClassLoader(getClassLoader(context.getExtensionModel()),
+                                                                           () -> executor.execute(context, futureCallback));
+                                                  } else {
+                                                    executedInterceptors.addAll(beforeExecutionResult.getExecutedInterceptors());
+                                                    future.completeExceptionally(beforeExecutionResult.getThrowable());
+                                                  }
 
-          return future;
-        },
-        e -> extractConnectionException(e).isPresent(),
-        e -> interceptError(context, e, interceptors),
-        e -> {},
-        identity(),
-        context.getCurrentScheduler())
+                                                  return future;
+                                                },
+                                                e -> extractConnectionException(e).isPresent(),
+                                                e -> interceptError(context, e, interceptors),
+                                                e -> {
+                                                },
+                                                identity(),
+                                                context.getCurrentScheduler())
         .whenComplete((v, e) -> {
           Object value = result.get();
           try {
@@ -253,8 +256,8 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
   private void onSuccess(ExecutionContext executionContext, Object result, List<Interceptor> interceptors) {
     intercept(interceptors, interceptor -> interceptor.onSuccess(executionContext, result),
               interceptor -> format(
-                  "Interceptor %s threw exception executing 'onSuccess' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result will be returned",
-                  interceptor));
+                                    "Interceptor %s threw exception executing 'onSuccess' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result will be returned",
+                                    interceptor));
   }
 
   private Throwable interceptError(ExecutionContext executionContext, Throwable e, List<Interceptor> interceptors) {
@@ -266,8 +269,8 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
         exceptionHolder.set(decoratedException);
       }
     }, interceptor -> format(
-        "Interceptor %s threw exception executing 'interceptError' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's exception will be returned",
-        interceptor));
+                             "Interceptor %s threw exception executing 'interceptError' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's exception will be returned",
+                             interceptor));
 
     return exceptionHolder.get();
   }
@@ -275,8 +278,8 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
   void after(ExecutionContext executionContext, Object result, List<Interceptor> interceptors) {
     intercept(interceptors, interceptor -> interceptor.after(executionContext, result),
               interceptor -> format(
-                  "Interceptor %s threw exception executing 'after' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result be returned",
-                  interceptor));
+                                    "Interceptor %s threw exception executing 'after' phase. Exception will be ignored. Next interceptors (if any) will be executed and the operation's result be returned",
+                                    interceptor));
   }
 
   private void intercept(List<Interceptor> interceptors, Consumer<Interceptor> closure,

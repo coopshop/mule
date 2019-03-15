@@ -242,7 +242,7 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
         assertThat(e, is(sameInstance(exception)));
         assertBefore();
         assertOnError(never());
-        verify(operationExecutor, never()).execute(operationContext, any());
+        verify(operationExecutor, never()).execute(same(operationContext), any());
       } catch (Exception e2) {
         throw new RuntimeException(e2);
       }
@@ -269,58 +269,53 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
 
   @Test
   public void enrichThrownException() throws Throwable {
+    expectedException.expect(instanceOf(HeisenbergException.class));
     expectedException.expect(hasRootCause(sameInstance(exception)));
-    expectedException.expectCause(instanceOf(HeisenbergException.class));
     expectedException.expectMessage(ERROR);
     mockExceptionEnricher(operationModel, () -> exceptionEnricher);
     stubFailingComponentExecutor(operationExecutor, exception);
 
     mediator = new DefaultExecutionMediator(extensionModel,
-                                 operationModel,
-                                 new DefaultConnectionManager(muleContext),
-                                 muleContext.getErrorTypeRepository());
+                                            operationModel,
+                                            new DefaultConnectionManager(muleContext),
+                                            muleContext.getErrorTypeRepository());
     execute();
   }
 
   @Test
   public void notEnrichThrownException() throws Throwable {
-    expectedException.expectCause(sameInstance(exception));
+    expectedException.expect(sameInstance(exception));
     mockExceptionEnricher(operationModel, () -> new NullExceptionEnricher());
     stubFailingComponentExecutor(operationExecutor, exception);
 
     mediator = new DefaultExecutionMediator(extensionModel,
-                                 operationModel,
-                                 new DefaultConnectionManager(muleContext),
-                                 muleContext.getErrorTypeRepository());
+                                            operationModel,
+                                            new DefaultConnectionManager(muleContext),
+                                            muleContext.getErrorTypeRepository());
     execute();
   }
 
   @Test
   public void enrichThrownExceptionInValueTransformer() throws Throwable {
     final Exception exceptionToThrow = new RuntimeException(ERROR, exception);
-    //expectedException.expect(hasRootCause(sameInstance(exception)));
-    //expectedException.expectCause(instanceOf(HeisenbergException.class));
-    //expectedException.expectMessage(ERROR);
+    expectedException.expectCause(hasRootCause(sameInstance(exception)));
+    expectedException.expect(instanceOf(HeisenbergException.class));
+    expectedException.expectMessage(ERROR);
     mockExceptionEnricher(operationModel, () -> exceptionEnricher);
     final ValueTransformer failingTransformer = mock(ValueTransformer.class);
     when(failingTransformer.apply(any(), any())).thenThrow(exceptionToThrow);
 
     mediator = new DefaultExecutionMediator(extensionModel,
-                                 operationModel,
-                                 new DefaultConnectionManager(muleContext),
-                                 muleContext.getErrorTypeRepository(), failingTransformer);
-    try {
-      execute();
-    } catch (Exception e) {
-      throw e;
-    }
+                                            operationModel,
+                                            new DefaultConnectionManager(muleContext),
+                                            muleContext.getErrorTypeRepository(), failingTransformer);
+    execute();
   }
 
   @Test
   public void enrichThrownModuleExceptionInValueTransformer() throws Throwable {
     final ModuleException moduleExceptionToThrow = new ModuleException(ERROR, HEALTH, exception);
-    expectedException.expectCause(instanceOf(HeisenbergException.class));
-    expectedException.expectMessage(ERROR);
+    expectedException.expectCause(sameInstance(moduleExceptionToThrow));
     mockExceptionEnricher(operationModel, () -> exceptionEnricher);
     final ValueTransformer failingTransformer = mock(ValueTransformer.class);
     when(failingTransformer.apply(any(), any())).thenThrow(moduleExceptionToThrow);
@@ -328,9 +323,9 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
     ErrorTypeRepository errorTypeRepository = mockErrorModel();
 
     mediator = new DefaultExecutionMediator(extensionModel,
-                                 operationModel,
-                                 new DefaultConnectionManager(muleContext),
-                                 errorTypeRepository, failingTransformer);
+                                            operationModel,
+                                            new DefaultConnectionManager(muleContext),
+                                            errorTypeRepository, failingTransformer);
     execute();
   }
 
@@ -344,9 +339,9 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
     when(failingTransformer.apply(any(), any())).thenThrow(exceptionToThrow);
 
     mediator = new DefaultExecutionMediator(extensionModel,
-                                 operationModel,
-                                 new DefaultConnectionManager(muleContext),
-                                 muleContext.getErrorTypeRepository(), failingTransformer);
+                                            operationModel,
+                                            new DefaultConnectionManager(muleContext),
+                                            muleContext.getErrorTypeRepository(), failingTransformer);
 
     execute();
   }
@@ -363,9 +358,9 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
     ErrorTypeRepository errorTypeRepository = mockErrorModel();
 
     mediator = new DefaultExecutionMediator(extensionModel,
-                                 operationModel,
-                                 new DefaultConnectionManager(muleContext),
-                                 errorTypeRepository, failingTransformer);
+                                            operationModel,
+                                            new DefaultConnectionManager(muleContext),
+                                            errorTypeRepository, failingTransformer);
     execute();
   }
 
@@ -373,10 +368,10 @@ public class DefaultExecutionMediatorTestCase extends AbstractMuleContextTestCas
     final ErrorType parentErrorType = mock(ErrorType.class);
     ErrorTypeRepository errorTypeRepository = mock(ErrorTypeRepository.class);
     when(errorTypeRepository.lookupErrorType(any())).thenReturn(Optional.of(ErrorTypeBuilder.builder()
-                                                                                .namespace("testNs")
-                                                                                .identifier("test")
-                                                                                .parentErrorType(parentErrorType)
-                                                                                .build()));
+        .namespace("testNs")
+        .identifier("test")
+        .parentErrorType(parentErrorType)
+        .build()));
 
     when(operationModel.getErrorModels()).thenReturn(singleton(new ImmutableErrorModel("test", "testNs", true, null)));
     return errorTypeRepository;
