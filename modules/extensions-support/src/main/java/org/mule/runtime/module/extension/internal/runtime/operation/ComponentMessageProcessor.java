@@ -18,7 +18,6 @@ import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.disposeIfNeeded
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.initialiseIfNeeded;
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.startIfNeeded;
 import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.stopIfNeeded;
-import static org.mule.runtime.core.api.rx.Exceptions.checkedBiConsumer;
 import static org.mule.runtime.core.internal.event.EventQuickCopy.quickCopy;
 import static org.mule.runtime.core.internal.interception.DefaultInterceptionEvent.INTERCEPTION_COMPONENT;
 import static org.mule.runtime.core.internal.interception.DefaultInterceptionEvent.INTERCEPTION_RESOLVED_CONTEXT;
@@ -38,6 +37,7 @@ import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils
 import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getCompletableOperationExecutorFactory;
 import static org.slf4j.LoggerFactory.getLogger;
 import static reactor.core.publisher.Flux.from;
+import static reactor.core.publisher.Mono.error;
 import static reactor.core.publisher.Mono.subscriberContext;
 import org.mule.runtime.api.component.Component;
 import org.mule.runtime.api.component.location.ComponentLocation;
@@ -58,7 +58,6 @@ import org.mule.runtime.core.api.processor.Processor;
 import org.mule.runtime.core.api.retry.policy.RetryPolicyTemplate;
 import org.mule.runtime.core.api.rx.Exceptions;
 import org.mule.runtime.core.api.streaming.CursorProviderFactory;
-import org.mule.runtime.core.api.util.func.CheckedBiConsumer;
 import org.mule.runtime.core.internal.exception.MessagingException;
 import org.mule.runtime.core.internal.message.InternalEvent;
 import org.mule.runtime.core.internal.policy.OperationPolicy;
@@ -103,7 +102,8 @@ import java.util.function.Supplier;
 
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
-import reactor.core.publisher.SynchronousSink;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.MonoSink;
 import reactor.util.context.Context;
 
 /**
@@ -182,52 +182,60 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
   public Publisher<CoreEvent> apply(Publisher<CoreEvent> publisher) {
     return from(publisher)
         .flatMap(event -> subscriberContext().map(ctx -> addContextToEvent(event, ctx)))
-        .handle(checkedBiConsumer((event, sink) -> {
+        .flatMap(event -> {
+          try {
 
-          final Optional<ConfigurationInstance> configuration = resolveConfiguration(event);
-          final Map<String, Object> resolutionResult = getResolutionResult(event, configuration);
-          final PrecalculatedExecutionContextAdapter<T> precalculatedContext = getPrecalculatedContext(event);
-          final Scheduler currentScheduler = ((InternalEvent) event).getInternalParameter(PROCESSOR_SCHEDULER_CONTEXT_KEY);
+            final Optional<ConfigurationInstance> configuration = resolveConfiguration(event);
+            final Map<String, Object> resolutionResult = getResolutionResult(event, configuration);
+            final PrecalculatedExecutionContextAdapter<T> precalculatedContext = getPrecalculatedContext(event);
+            final Scheduler currentScheduler = ((InternalEvent) event).getInternalParameter(PROCESSOR_SCHEDULER_CONTEXT_KEY);
 
-          // TODO: This whole concept of the lambda executor is only needed in the old approach because of the reactor/policy crap
-          // review if we can get rid of this
-          CheckedBiConsumer<Map<String, Object>, CoreEvent> executor;
+            // TODO: This whole concept of the lambda executor is only needed in the old approach because of the reactor/policy crap
+            // review if we can get rid of this
+            ExecutionDelegate executor;
 
-          if (getLocation() != null && isInterceptedComponent(getLocation(), (InternalEvent) event)
-              && precalculatedContext != null) {
-            ExecutionContextAdapter<T> operationContext = getPrecalculatedContext(event);
+            if (getLocation() != null && isInterceptedComponent(getLocation(), (InternalEvent) event)
+                && precalculatedContext != null) {
+              ExecutionContextAdapter<T> operationContext = getPrecalculatedContext(event);
 
-            executor = (parameters, operationEvent) -> {
-              operationContext.setCurrentScheduler(currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
-              executeOperation(operationEvent, operationContext, sink);
-            };
-          } else {
-            executor = (parameters, operationEvent) -> {
-              ExecutionContextAdapter<T> operationContext;
-              try {
-                operationContext = createExecutionContext(configuration, parameters, operationEvent,
-                                                          currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
+              executor = (parameters, operationEvent, sink) -> {
+                operationContext.setCurrentScheduler(currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
                 executeOperation(operationEvent, operationContext, sink);
-              } catch (Throwable t) {
-                // this should be impossible... but better safe than zorry
-                sink.error(t);
-              }
-            };
+              };
+            } else {
+              executor = (parameters, operationEvent, sink) -> {
+                ExecutionContextAdapter<T> operationContext = createExecutionContext(
+                    configuration,
+                    parameters,
+                    operationEvent,
+                    currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
+
+                executeOperation(operationEvent, operationContext, sink);
+              };
+            }
+
+            //TODO: bring policies back to life
+            //if (getLocation() != null) {
+            //  ((DefaultFlowCallStack) event.getFlowCallStack())
+            //      .setCurrentProcessorPath(resolvedProcessorRepresentation);
+            //  return Mono.from(policyManager
+            //      .createOperationPolicy(this, event, () -> resolutionResult)
+            //      .process(event, operationExecutionFunction, () -> resolutionResult, getLocation()));
+            //} else {
+            // If this operation has no component location then it is internal. Don't apply policies on internal operations.
+
+            return Mono.create(sink -> executor.execute(resolutionResult, event, sink));
+            //}
+          } catch (Throwable t) {
+            return error(t);
           }
+        });
+  }
 
-          //TODO: bring policies back to life
-          //if (getLocation() != null) {
-          //  ((DefaultFlowCallStack) event.getFlowCallStack())
-          //      .setCurrentProcessorPath(resolvedProcessorRepresentation);
-          //  return Mono.from(policyManager
-          //      .createOperationPolicy(this, event, () -> resolutionResult)
-          //      .process(event, operationExecutionFunction, () -> resolutionResult, getLocation()));
-          //} else {
-          // If this operation has no component location then it is internal. Don't apply policies on internal operations.
+  @FunctionalInterface
+  private interface ExecutionDelegate {
 
-          executor.accept(resolutionResult, event);
-          //}
-        }));
+    void execute(Map<String, Object> parameters, CoreEvent operationEvent, MonoSink<CoreEvent> sink);
   }
 
   private CoreEvent addContextToEvent(CoreEvent event, Context ctx) {
@@ -273,7 +281,7 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
 
   protected void executeOperation(CoreEvent event,
                                   ExecutionContextAdapter<T> operationContext,
-                                  SynchronousSink<CoreEvent> sink) {
+                                  MonoSink<CoreEvent> sink) {
 
     ExecutorCallback callback =
         new CoreEventSinkExecutorCallback(sink,
@@ -524,7 +532,7 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
     List<Interceptor> interceptors = mediator.collectInterceptors(executionContext.getConfiguration(),
                                                                   executionContext instanceof PrecalculatedExecutionContextAdapter
                                                                       ? ((PrecalculatedExecutionContextAdapter) executionContext)
-                                                                          .getOperationExecutor()
+                                                                      .getOperationExecutor()
                                                                       : componentExecutor);
 
     disposeResolvedParameters(executionContext, interceptors);

@@ -20,6 +20,7 @@ import org.mule.runtime.core.api.extension.ExtensionManager;
 import org.mule.runtime.core.api.retry.policy.RetryPolicyTemplate;
 import org.mule.runtime.core.api.streaming.CursorProviderFactory;
 import org.mule.runtime.core.internal.policy.PolicyManager;
+import org.mule.runtime.core.internal.util.rx.MonoSinkWrapper;
 import org.mule.runtime.extension.api.connectivity.oauth.AccessTokenExpiredException;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationInstance;
 import org.mule.runtime.extension.api.runtime.config.ConfigurationProvider;
@@ -30,8 +31,7 @@ import org.mule.runtime.module.extension.internal.runtime.resolver.ResolverSet;
 import org.mule.runtime.module.extension.internal.util.ReflectionCache;
 
 import org.slf4j.Logger;
-import reactor.core.publisher.SynchronousSink;
-import reactor.util.context.Context;
+import reactor.core.publisher.MonoSink;
 
 /**
  * A specialization of {@link OperationMessageProcessor} for operations which might be running
@@ -71,28 +71,28 @@ public class OAuthOperationMessageProcessor extends OperationMessageProcessor {
   @Override
   protected void executeOperation(CoreEvent event,
                                   ExecutionContextAdapter<OperationModel> operationContext,
-                                  SynchronousSink<CoreEvent> sink) {
+                                  MonoSink<CoreEvent> sink) {
 
     super.executeOperation(event, operationContext, refreshable(event, operationContext, sink));
 
   }
 
-  private SynchronousSink<CoreEvent> refreshable(CoreEvent event,
+  private MonoSink<CoreEvent> refreshable(CoreEvent event,
                                                  ExecutionContextAdapter<OperationModel> operationContext,
-                                                 SynchronousSink<CoreEvent> sink) {
-    return new SynchronousSink<CoreEvent>() {
+                                                 MonoSink<CoreEvent> sink) {
+    return new MonoSinkWrapper<CoreEvent>(sink) {
 
       @Override
       public void error(Throwable e) {
         AccessTokenExpiredException expiredException = getTokenExpirationException(e);
         if (expiredException == null) {
-          sink.error(e);
+          delegate.error(e);
           return;
         }
 
         OAuthConnectionProviderWrapper connectionProvider = getOAuthConnectionProvider(operationContext);
         if (connectionProvider == null) {
-          sink.error(e);
+          delegate.error(e);
           return;
         }
 
@@ -109,7 +109,7 @@ public class OAuthOperationMessageProcessor extends OperationMessageProcessor {
           oauthManager.refreshToken(ownerConfigName, expiredException.getResourceOwnerId(),
                                     getOAuthConnectionProvider(operationContext));
         } catch (Exception refreshException) {
-          sink.error(new MuleRuntimeException(createStaticMessage(format(
+          delegate.error(new MuleRuntimeException(createStaticMessage(format(
                                                                          "AccessToken for resourceOwner '%s' expired while executing operation '%s:%s' using config '%s'. Refresh token "
                                                                              + "workflow was attempted but failed with the following exception",
                                                                          connectionProvider.getResourceOwnerId(),
@@ -128,21 +128,6 @@ public class OAuthOperationMessageProcessor extends OperationMessageProcessor {
         }
 
         OAuthOperationMessageProcessor.super.executeOperation(event, operationContext, sink);
-      }
-
-      @Override
-      public void complete() {
-        sink.complete();
-      }
-
-      @Override
-      public Context currentContext() {
-        return sink.currentContext();
-      }
-
-      @Override
-      public void next(CoreEvent coreEvent) {
-        sink.next(coreEvent);
       }
     };
   }

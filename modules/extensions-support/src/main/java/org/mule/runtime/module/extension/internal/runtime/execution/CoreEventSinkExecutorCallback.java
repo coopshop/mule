@@ -11,15 +11,15 @@ import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExec
 
 import java.util.function.Function;
 
-import reactor.core.publisher.SynchronousSink;
+import reactor.core.publisher.MonoSink;
 
 public class CoreEventSinkExecutorCallback implements ExecutorCallback {
 
-  private final SynchronousSink<CoreEvent> sink;
+  private final MonoSink<CoreEvent> sink;
   private final Function<Object, CoreEvent> valueMapper;
   private final Function<Throwable, Throwable> exceptionMapper;
 
-  public CoreEventSinkExecutorCallback(SynchronousSink<CoreEvent> sink,
+  public CoreEventSinkExecutorCallback(MonoSink<CoreEvent> sink,
                                        Function<Object, CoreEvent> valueMapper,
                                        Function<Throwable, Throwable> exceptionMapper) {
     this.sink = sink;
@@ -30,7 +30,7 @@ public class CoreEventSinkExecutorCallback implements ExecutorCallback {
   @Override
   public void complete(Object value) {
     try {
-      sink.next(valueMapper.apply(value));
+      sink.success(valueMapper.apply(value));
     } catch (Throwable t) {
       error(t);
     }
