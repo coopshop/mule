@@ -80,7 +80,7 @@ public class SimpleRetryPolicy implements RetryPolicy {
     final LazyValue<Boolean> isTransanctional = new LazyValue<>(() -> isTransactionActive());
 
     return Failsafe.with(actingPolicy)
-        .with(new ConditionalExecutorServiceDecorator(retryScheduler, s -> first.isFirst() && isTransanctional.get()))
+        .with(new ConditionalExecutorServiceDecorator(retryScheduler, s -> first.isFirst() || isTransanctional.get()))
         .getStageAsync(futureSupplier::get);
   }
 
