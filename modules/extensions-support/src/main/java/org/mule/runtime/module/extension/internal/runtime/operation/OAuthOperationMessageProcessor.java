@@ -78,8 +78,8 @@ public class OAuthOperationMessageProcessor extends OperationMessageProcessor {
   }
 
   private MonoSink<CoreEvent> refreshable(CoreEvent event,
-                                                 ExecutionContextAdapter<OperationModel> operationContext,
-                                                 MonoSink<CoreEvent> sink) {
+                                          ExecutionContextAdapter<OperationModel> operationContext,
+                                          MonoSink<CoreEvent> sink) {
     return new MonoSinkWrapper<CoreEvent>(sink) {
 
       @Override
@@ -110,14 +110,14 @@ public class OAuthOperationMessageProcessor extends OperationMessageProcessor {
                                     getOAuthConnectionProvider(operationContext));
         } catch (Exception refreshException) {
           delegate.error(new MuleRuntimeException(createStaticMessage(format(
-                                                                         "AccessToken for resourceOwner '%s' expired while executing operation '%s:%s' using config '%s'. Refresh token "
-                                                                             + "workflow was attempted but failed with the following exception",
-                                                                         connectionProvider.getResourceOwnerId(),
-                                                                         getExtensionModel().getName(),
-                                                                         operationContext.getComponentModel().getName(),
-                                                                         operationContext.getConfiguration().get()
-                                                                             .getName())),
-                                              refreshException));
+                                                                             "AccessToken for resourceOwner '%s' expired while executing operation '%s:%s' using config '%s'. Refresh token "
+                                                                                 + "workflow was attempted but failed with the following exception",
+                                                                             connectionProvider.getResourceOwnerId(),
+                                                                             getExtensionModel().getName(),
+                                                                             operationContext.getComponentModel().getName(),
+                                                                             operationContext.getConfiguration().get()
+                                                                                 .getName())),
+                                                  refreshException));
 
           return;
         }

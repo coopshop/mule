@@ -205,10 +205,11 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
             } else {
               executor = (parameters, operationEvent, sink) -> {
                 ExecutionContextAdapter<T> operationContext = createExecutionContext(
-                    configuration,
-                    parameters,
-                    operationEvent,
-                    currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
+                                                                                     configuration,
+                                                                                     parameters,
+                                                                                     operationEvent,
+                                                                                     currentScheduler != null ? currentScheduler
+                                                                                         : IMMEDIATE_SCHEDULER);
 
                 executeOperation(operationEvent, operationContext, sink);
               };
@@ -532,7 +533,7 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
     List<Interceptor> interceptors = mediator.collectInterceptors(executionContext.getConfiguration(),
                                                                   executionContext instanceof PrecalculatedExecutionContextAdapter
                                                                       ? ((PrecalculatedExecutionContextAdapter) executionContext)
-                                                                      .getOperationExecutor()
+                                                                          .getOperationExecutor()
                                                                       : componentExecutor);
 
     disposeResolvedParameters(executionContext, interceptors);

@@ -18,7 +18,8 @@ import java.lang.reflect.Method;
  *
  * @since 4.2.0
  */
-public class NonBlockingReflectiveMethodOperationExecutor<M extends ComponentModel> extends AbstractReflectiveMethodOperationExecutor<M> {
+public class NonBlockingReflectiveMethodOperationExecutor<M extends ComponentModel>
+    extends AbstractReflectiveMethodOperationExecutor<M> {
 
 
   public NonBlockingReflectiveMethodOperationExecutor(M operationModel, Method operationMethod, Object operationInstance) {

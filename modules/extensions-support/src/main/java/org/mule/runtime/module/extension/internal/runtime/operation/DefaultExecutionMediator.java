@@ -171,6 +171,7 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
                                                       new FutureExecutionCallbackDecorator(future, result);
 
                                                   // If the operation is retried, then the interceptors need to be executed again,
+                                                  executedInterceptors.clear();
                                                   InterceptorsExecutionResult beforeExecutionResult =
                                                       before(context, interceptors);
                                                   if (beforeExecutionResult.isOk()) {
@@ -185,30 +186,33 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
                                                   return future;
                                                 },
                                                 e -> extractConnectionException(e).isPresent(),
-                                                e -> interceptError(context, e, interceptors),
+                                                e -> {
+                                                  interceptError(context, e, executedInterceptors);
+                                                  after(context, null, executedInterceptors);
+                                                },
                                                 e -> {
                                                 },
                                                 identity(),
                                                 context.getCurrentScheduler())
         .whenComplete((v, e) -> {
+          // after() method cannot be invoked in the finally. Needs to be explicitly called before completing the callback.
+          // Race conditions appear otherwise, specially in connection pooling scenarios.
           Object value = result.get();
           try {
             if (e == null) {
               value = transform(context, value);
-              onSuccess(context, value, interceptors);
+              onSuccess(context, value, executedInterceptors);
+              after(context, value, executedInterceptors);
               callback.complete(value);
             } else {
-              handleError(e, context, interceptors, callback);
+              handleError(e, context, executedInterceptors, callback);
+              after(context, value, executedInterceptors);
             }
           } catch (Throwable t) {
-            handleError(t, context, interceptors, callback);
+            handleError(t, context, executedInterceptors, callback);
+            after(context, value, executedInterceptors);
           } finally {
-            try {
-              after(context, value, executedInterceptors);
-            } finally {
-              stats.ifPresent(s -> s.discountInflightOperation());
-              executedInterceptors.clear();
-            }
+            stats.ifPresent(s -> s.discountInflightOperation());
           }
         });
   }
@@ -240,7 +244,7 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
 
   InterceptorsExecutionResult before(ExecutionContext executionContext, List<Interceptor> interceptors) {
 
-    List<Interceptor> interceptorList = new ArrayList<>();
+    List<Interceptor> interceptorList = new ArrayList<>(interceptors.size());
 
     try {
       for (Interceptor interceptor : interceptors) {

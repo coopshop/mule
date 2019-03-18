@@ -48,15 +48,23 @@ public interface RetryPolicy {
       CompletableFuture<T> retry = futureSupplier.get();
       retry.whenComplete((v, e) -> {
         if (e != null) {
-          completedFuture.completeExceptionally(e);
+          try {
+            e = errorFunction.apply(unwrap(e));
+            onExhausted.accept(e);
+          } finally {
+            completedFuture.completeExceptionally(e);
+          }
         } else {
           completedFuture.complete(v);
         }
       });
     } catch (Throwable t) {
-      t = unwrap(t);
-      onExhausted.accept(t);
-      completedFuture.completeExceptionally(errorFunction.apply(t));
+      try {
+        t = errorFunction.apply(unwrap(t));
+        onExhausted.accept(t);
+      } finally {
+        completedFuture.completeExceptionally(errorFunction.apply(t));
+      }
     }
 
     return completedFuture;
@@ -107,5 +115,4 @@ public interface RetryPolicy {
       return errorFunction.apply(e);
     });
   }
-
 }
