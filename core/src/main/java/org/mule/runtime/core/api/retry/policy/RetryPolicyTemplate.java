@@ -69,6 +69,10 @@ public interface RetryPolicyTemplate {
     return applyPolicy(publisher, IMMEDIATE_SCHEDULER);
   }
 
+  default boolean isEnabled() {
+    return true;
+  }
+
   /**
    * Applies the retry policy in a non blocking manner by transforming the given {@code publisher} into one configured to apply
    * the retry logic.
@@ -123,7 +127,6 @@ public interface RetryPolicyTemplate {
                                        Consumer<Throwable> onExhausted, Function<Throwable, Throwable> errorFunction,
                                        Scheduler retryScheduler) {
     return createRetryInstance().applyPolicy(publisher, shouldRetry, onExhausted, errorFunction, retryScheduler);
-
   }
 
   default <T> CompletableFuture<T> applyPolicy(Supplier<CompletableFuture<T>> futureSupplier,

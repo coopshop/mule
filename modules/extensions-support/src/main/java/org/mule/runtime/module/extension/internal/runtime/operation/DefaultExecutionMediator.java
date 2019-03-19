@@ -44,6 +44,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -110,8 +111,10 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
                       ExecutionContextAdapter<M> context,
                       ExecutorCallback callback) {
 
-    final Optional<MutableConfigurationStats> stats = getMutableConfigurationStats(context);
-    stats.ifPresent(s -> s.addInflightOperation());
+    final MutableConfigurationStats stats = getMutableConfigurationStats(context);
+    if (stats != null) {
+      stats.addInflightOperation();
+    }
 
     try {
       getExecutionTemplate((ExecutionContextAdapter<ComponentModel>) context).execute(() -> {
@@ -128,11 +131,10 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
   private class FutureExecutionCallbackDecorator implements ExecutorCallback {
 
     private final CompletableFuture<Object> future;
-    private final Reference<Object> valueReference;
+    private final Reference<Object> valueReference = new Reference<>();
 
-    private FutureExecutionCallbackDecorator(CompletableFuture<Object> future, Reference<Object> valueReference) {
+    private FutureExecutionCallbackDecorator(CompletableFuture<Object> future) {
       this.future = future;
-      this.valueReference = valueReference;
     }
 
     @Override
@@ -145,76 +147,113 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
     public void error(Throwable e) {
       future.completeExceptionally(e);
     }
+  }
 
-    public Object getValue() {
-      if (!future.isDone()) {
-        throw new IllegalStateException("Operation is not yet finished");
+  private void executeWithoutRetry(Consumer<ExecutorCallback> executeCommand,
+                                   BiConsumer<ExecutorCallback, Object> onSuccess,
+                                   BiConsumer<ExecutorCallback, Throwable> onError,
+                                   ExecutorCallback callback) {
+
+    ExecutorCallback hack = new ExecutorCallback() {
+
+      @Override
+      public void complete(Object value) {
+        onSuccess.accept(callback, value);
       }
 
-      return valueReference.get();
-    }
+      @Override
+      public void error(Throwable e) {
+        onError.accept(callback, e);
+      }
+    };
+
+    executeCommand.accept(hack);
+  }
+
+  private void executeWithRetry(ExecutionContextAdapter<M> context,
+                                RetryPolicyTemplate retryPolicy,
+                                List<Interceptor> executedInterceptors,
+                                Consumer<ExecutorCallback> executeCommand,
+                                BiConsumer<ExecutorCallback, Object> onSuccess,
+                                BiConsumer<ExecutorCallback, Throwable> onError,
+                                ExecutorCallback callback) {
+
+    retryPolicy.applyPolicy(() -> {
+      CompletableFuture<Object> future = new CompletableFuture<>();
+      executeCommand.accept(new FutureExecutionCallbackDecorator(future));
+      return future;
+    },
+                            e -> extractConnectionException(e).isPresent(),
+                            e -> {
+                              interceptError(context, e, executedInterceptors);
+                              after(context, null, executedInterceptors);
+                            },
+                            e -> {
+                            },
+                            identity(),
+                            context.getCurrentScheduler())
+        .whenComplete((v, e) -> {
+          if (e != null) {
+            onError.accept(callback, e);
+          } else {
+            onSuccess.accept(callback, v);
+          }
+        });
   }
 
   private void executeWithInterceptors(CompletableComponentExecutor<M> executor,
                                        ExecutionContextAdapter<M> context,
                                        final List<Interceptor> interceptors,
-                                       Optional<MutableConfigurationStats> stats,
-                                       ExecutorCallback callback) {
+                                       MutableConfigurationStats stats,
+                                       ExecutorCallback executorCallback) {
 
     List<Interceptor> executedInterceptors = new ArrayList<>(interceptors.size());
-    Reference<Object> result = new Reference<>();
 
-    getRetryPolicyTemplate(context).applyPolicy(
-                                                () -> {
-                                                  CompletableFuture<Object> future = new CompletableFuture<>();
-                                                  ExecutorCallback futureCallback =
-                                                      new FutureExecutionCallbackDecorator(future, result);
+    Consumer<ExecutorCallback> executeCommand = callback -> {
+      // If the operation is retried, then the interceptors need to be executed again,
+      executedInterceptors.clear();
+      InterceptorsExecutionResult beforeExecutionResult = before(context, interceptors);
+      if (beforeExecutionResult.isOk()) {
+        executedInterceptors.addAll(interceptors);
+        withContextClassLoader(getClassLoader(context.getExtensionModel()), () -> executor.execute(context, callback));
+      } else {
+        executedInterceptors.addAll(beforeExecutionResult.getExecutedInterceptors());
+        callback.error(beforeExecutionResult.getThrowable());
+      }
+    };
 
-                                                  // If the operation is retried, then the interceptors need to be executed again,
-                                                  executedInterceptors.clear();
-                                                  InterceptorsExecutionResult beforeExecutionResult =
-                                                      before(context, interceptors);
-                                                  if (beforeExecutionResult.isOk()) {
-                                                    executedInterceptors.addAll(interceptors);
-                                                    withContextClassLoader(getClassLoader(context.getExtensionModel()),
-                                                                           () -> executor.execute(context, futureCallback));
-                                                  } else {
-                                                    executedInterceptors.addAll(beforeExecutionResult.getExecutedInterceptors());
-                                                    future.completeExceptionally(beforeExecutionResult.getThrowable());
-                                                  }
+    BiConsumer<ExecutorCallback, Object> onSuccess = (callback, value) -> {
+      // after() method cannot be invoked in the finally. Needs to be explicitly called before completing the callback.
+      // Race conditions appear otherwise, specially in connection pooling scenarios.
+      try {
+        value = transform(context, value);
+        onSuccess(context, value, executedInterceptors);
+        after(context, value, executedInterceptors);
+        callback.complete(value);
+      } catch (Throwable t) {
+        handleError(t, context, executedInterceptors, callback);
+        after(context, value, executedInterceptors);
+      } finally {
+        if (stats != null) {
+          stats.discountInflightOperation();
+        }
+      }
+    };
 
-                                                  return future;
-                                                },
-                                                e -> extractConnectionException(e).isPresent(),
-                                                e -> {
-                                                  interceptError(context, e, executedInterceptors);
-                                                  after(context, null, executedInterceptors);
-                                                },
-                                                e -> {
-                                                },
-                                                identity(),
-                                                context.getCurrentScheduler())
-        .whenComplete((v, e) -> {
-          // after() method cannot be invoked in the finally. Needs to be explicitly called before completing the callback.
-          // Race conditions appear otherwise, specially in connection pooling scenarios.
-          Object value = result.get();
-          try {
-            if (e == null) {
-              value = transform(context, value);
-              onSuccess(context, value, executedInterceptors);
-              after(context, value, executedInterceptors);
-              callback.complete(value);
-            } else {
-              handleError(e, context, executedInterceptors, callback);
-              after(context, value, executedInterceptors);
-            }
-          } catch (Throwable t) {
-            handleError(t, context, executedInterceptors, callback);
-            after(context, value, executedInterceptors);
-          } finally {
-            stats.ifPresent(s -> s.discountInflightOperation());
-          }
-        });
+    BiConsumer<ExecutorCallback, Throwable> onError = (callback, e) -> {
+      handleError(e, context, executedInterceptors, callback);
+      if (stats != null) {
+        stats.discountInflightOperation();
+      }
+      after(context, null, executedInterceptors);
+    };
+
+    RetryPolicyTemplate retryPolicy = getRetryPolicyTemplate(context);
+    if (retryPolicy.isEnabled()) {
+      executeWithRetry(context, retryPolicy, executedInterceptors, executeCommand, onSuccess, onError, executorCallback);
+    } else {
+      executeWithoutRetry(executeCommand, onSuccess, onError, executorCallback);
+    }
   }
 
   private void handleError(Throwable e, ExecutionContextAdapter context, List<Interceptor> interceptors,
@@ -328,11 +367,10 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
         .orElse(fallbackRetryPolicyTemplate));
   }
 
-  private Optional<MutableConfigurationStats> getMutableConfigurationStats(ExecutionContext<M> context) {
+  private MutableConfigurationStats getMutableConfigurationStats(ExecutionContext<M> context) {
     return context.getConfiguration()
-        .map(ConfigurationInstance::getStatistics)
-        .filter(s -> s instanceof MutableConfigurationStats)
-        .map(s -> (MutableConfigurationStats) s);
+        .map(c -> (MutableConfigurationStats) c.getStatistics())
+        .orElse(null);
   }
 
   private List<Interceptor> collectInterceptors(ExecutionContextAdapter<M> context, CompletableComponentExecutor<M> executor) {

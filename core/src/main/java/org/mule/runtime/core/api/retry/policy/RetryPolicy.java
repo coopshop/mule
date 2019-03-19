@@ -63,7 +63,7 @@ public interface RetryPolicy {
         t = errorFunction.apply(unwrap(t));
         onExhausted.accept(t);
       } finally {
-        completedFuture.completeExceptionally(errorFunction.apply(t));
+        completedFuture.completeExceptionally(t);
       }
     }
 
