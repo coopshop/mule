@@ -362,7 +362,7 @@ public abstract class AbstractOperationMessageProcessorTestCase extends Abstract
           ((OperationExecutionFunction) invocation.getArgument(1))
               .execute(((OperationParametersProcessor) invocationOnMock.getArgument(2)).getOperationParameters(),
                        invocationOnMock.getArgument(1),
-                       invocation.getArgument(3));
+                       invocation.getArgument(4));
           return null;
         }).when(mockOperationPolicy).process(any(), any(), any(), any(), any());
       }
