@@ -37,6 +37,7 @@ import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils
 import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getCompletableOperationExecutorFactory;
 import static org.slf4j.LoggerFactory.getLogger;
 import static reactor.core.publisher.Flux.from;
+import static reactor.core.publisher.Mono.create;
 import static reactor.core.publisher.Mono.error;
 import static reactor.core.publisher.Mono.subscriberContext;
 import org.mule.runtime.api.component.Component;
@@ -104,7 +105,6 @@ import java.util.function.Supplier;
 
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
-import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
 import reactor.util.context.Context;
 
@@ -192,8 +192,6 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
             final PrecalculatedExecutionContextAdapter<T> precalculatedContext = getPrecalculatedContext(event);
             final Scheduler currentScheduler = ((InternalEvent) event).getInternalParameter(PROCESSOR_SCHEDULER_CONTEXT_KEY);
 
-            // TODO: This whole concept of the lambda executor is only needed in the old approach because of the reactor/policy crap
-            // review if we can get rid of this
             OperationExecutionFunction operationExecutionFunction;
 
             if (getLocation() != null && isInterceptedComponent(getLocation(), (InternalEvent) event)
@@ -217,28 +215,21 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
               };
             }
 
-            //TODO: bring policies back to life
             if (getLocation() != null) {
               ((DefaultFlowCallStack) event.getFlowCallStack())
                   .setCurrentProcessorPath(resolvedProcessorRepresentation);
-              return Mono.create(sink -> policyManager
+              return create(sink -> policyManager
                   .createOperationPolicy(this, event, () -> resolutionResult)
                   .process(event, operationExecutionFunction, () -> resolutionResult, getLocation(), sink));
             } else {
               // If this operation has no component location then it is internal. Don't apply policies on internal operations.
 
-              return Mono.create(sink -> operationExecutionFunction.execute(resolutionResult, event, sink));
+              return create(sink -> operationExecutionFunction.execute(resolutionResult, event, sink));
             }
           } catch (Throwable t) {
             return error(t);
           }
         });
-  }
-
-  @FunctionalInterface
-  private interface ExecutionDelegate {
-
-    void execute(Map<String, Object> parameters, CoreEvent operationEvent, MonoSink<CoreEvent> sink);
   }
 
   private CoreEvent addContextToEvent(CoreEvent event, Context ctx) {
