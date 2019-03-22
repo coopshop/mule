@@ -58,8 +58,10 @@ import org.mule.runtime.core.api.processor.Processor;
 import org.mule.runtime.core.api.retry.policy.RetryPolicyTemplate;
 import org.mule.runtime.core.api.rx.Exceptions;
 import org.mule.runtime.core.api.streaming.CursorProviderFactory;
+import org.mule.runtime.core.internal.context.notification.DefaultFlowCallStack;
 import org.mule.runtime.core.internal.exception.MessagingException;
 import org.mule.runtime.core.internal.message.InternalEvent;
+import org.mule.runtime.core.internal.policy.OperationExecutionFunction;
 import org.mule.runtime.core.internal.policy.OperationPolicy;
 import org.mule.runtime.core.internal.policy.PolicyManager;
 import org.mule.runtime.core.internal.processor.ParametersResolverProcessor;
@@ -192,18 +194,18 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
 
             // TODO: This whole concept of the lambda executor is only needed in the old approach because of the reactor/policy crap
             // review if we can get rid of this
-            ExecutionDelegate executor;
+            OperationExecutionFunction operationExecutionFunction;
 
             if (getLocation() != null && isInterceptedComponent(getLocation(), (InternalEvent) event)
                 && precalculatedContext != null) {
               ExecutionContextAdapter<T> operationContext = getPrecalculatedContext(event);
 
-              executor = (parameters, operationEvent, sink) -> {
+              operationExecutionFunction = (parameters, operationEvent, sink) -> {
                 operationContext.setCurrentScheduler(currentScheduler != null ? currentScheduler : IMMEDIATE_SCHEDULER);
                 executeOperation(operationEvent, operationContext, sink);
               };
             } else {
-              executor = (parameters, operationEvent, sink) -> {
+              operationExecutionFunction = (parameters, operationEvent, sink) -> {
                 ExecutionContextAdapter<T> operationContext = createExecutionContext(
                                                                                      configuration,
                                                                                      parameters,
@@ -216,17 +218,17 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
             }
 
             //TODO: bring policies back to life
-            //if (getLocation() != null) {
-            //  ((DefaultFlowCallStack) event.getFlowCallStack())
-            //      .setCurrentProcessorPath(resolvedProcessorRepresentation);
-            //  return Mono.from(policyManager
-            //      .createOperationPolicy(this, event, () -> resolutionResult)
-            //      .process(event, operationExecutionFunction, () -> resolutionResult, getLocation()));
-            //} else {
-            // If this operation has no component location then it is internal. Don't apply policies on internal operations.
+            if (getLocation() != null) {
+              ((DefaultFlowCallStack) event.getFlowCallStack())
+                  .setCurrentProcessorPath(resolvedProcessorRepresentation);
+              return Mono.create(sink -> policyManager
+                  .createOperationPolicy(this, event, () -> resolutionResult)
+                  .process(event, operationExecutionFunction, () -> resolutionResult, getLocation(), sink));
+            } else {
+              // If this operation has no component location then it is internal. Don't apply policies on internal operations.
 
-            return Mono.create(sink -> executor.execute(resolutionResult, event, sink));
-            //}
+              return Mono.create(sink -> operationExecutionFunction.execute(resolutionResult, event, sink));
+            }
           } catch (Throwable t) {
             return error(t);
           }

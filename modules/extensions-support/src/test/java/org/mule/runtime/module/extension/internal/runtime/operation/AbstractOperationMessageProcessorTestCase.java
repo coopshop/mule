@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.anyObject;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -357,11 +358,13 @@ public abstract class AbstractOperationMessageProcessorTestCase extends Abstract
     when(mockPolicyManager.createOperationPolicy(any(), any(), any())).thenAnswer(invocationOnMock -> {
       if (mockOperationPolicy == null) {
         mockOperationPolicy = mock(OperationPolicy.class);
-        when(mockOperationPolicy.process(any(), any(), any(), any()))
-            .thenAnswer(operationPolicyInvocationMock -> ((OperationExecutionFunction) operationPolicyInvocationMock
-                .getArguments()[1])
-                    .execute(((OperationParametersProcessor) invocationOnMock.getArguments()[2]).getOperationParameters(),
-                             (CoreEvent) invocationOnMock.getArguments()[1]));
+        doAnswer(invocation -> {
+          ((OperationExecutionFunction) invocation.getArgument(1))
+              .execute(((OperationParametersProcessor) invocationOnMock.getArgument(2)).getOperationParameters(),
+                       invocationOnMock.getArgument(1),
+                       invocation.getArgument(3));
+          return null;
+        }).when(mockOperationPolicy).process(any(), any(), any(), any(), any());
       }
       return mockOperationPolicy;
     });

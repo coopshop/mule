@@ -401,7 +401,7 @@ public class OperationMessageProcessorTestCase extends AbstractOperationMessageP
     messageProcessor.process(event);
 
     verify(mockPolicyManager).createOperationPolicy(eq(messageProcessor), same(event), any(OperationParametersProcessor.class));
-    verify(mockOperationPolicy).process(same(event), any(OperationExecutionFunction.class), any(), any());
+    verify(mockOperationPolicy).process(same(event), any(OperationExecutionFunction.class), any(), any(), any());
   }
 
   @Test
