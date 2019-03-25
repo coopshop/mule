@@ -231,8 +231,15 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
         after(context, value, executedInterceptors);
         callback.complete(value);
       } catch (Throwable t) {
-        handleError(t, context, executedInterceptors, callback);
-        after(context, value, executedInterceptors);
+        try {
+          t = handleError(t, context, executedInterceptors);
+        } finally {
+          try {
+            after(context, value, executedInterceptors);
+          } finally {
+            callback.error(t);
+          }
+        }
       } finally {
         if (stats != null) {
           stats.discountInflightOperation();
@@ -240,12 +247,19 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
       }
     };
 
-    BiConsumer<ExecutorCallback, Throwable> onError = (callback, e) -> {
-      handleError(e, context, executedInterceptors, callback);
-      if (stats != null) {
-        stats.discountInflightOperation();
+    BiConsumer<ExecutorCallback, Throwable> onError = (callback, t) -> {
+      t = handleError(t, context, executedInterceptors);
+      try {
+        after(context, null, executedInterceptors);
+      } finally {
+        try {
+          callback.error(t);
+        } finally {
+          if (stats != null) {
+            stats.discountInflightOperation();
+          }
+        }
       }
-      after(context, null, executedInterceptors);
     };
 
     RetryPolicyTemplate retryPolicy = getRetryPolicyTemplate(context);
@@ -256,13 +270,8 @@ public final class DefaultExecutionMediator<M extends ComponentModel, T, A> impl
     }
   }
 
-  private void handleError(Throwable e, ExecutionContextAdapter context, List<Interceptor> interceptors,
-                           ExecutorCallback callback) {
-    try {
-      e = mapError(e, context, interceptors);
-    } finally {
-      callback.error(e);
-    }
+  private Throwable handleError(Throwable e, ExecutionContextAdapter context, List<Interceptor> interceptors) {
+    return mapError(e, context, interceptors);
   }
 
   private Throwable mapError(Throwable e, ExecutionContextAdapter context, List<Interceptor> interceptors) {
