@@ -34,7 +34,7 @@ import static org.mule.runtime.module.extension.internal.runtime.resolver.Resolv
 import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.getMemberField;
 import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.getMemberName;
 import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.isVoid;
-import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getCompletableOperationExecutorFactory;
+import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getOperationExecutorFactory;
 import static org.slf4j.LoggerFactory.getLogger;
 import static reactor.core.publisher.Flux.from;
 import static reactor.core.publisher.Mono.create;
@@ -381,7 +381,7 @@ public abstract class ComponentMessageProcessor<T extends ComponentModel> extend
       }
     });
 
-    return getCompletableOperationExecutorFactory(componentModel).createExecutor(componentModel, params);
+    return getOperationExecutorFactory(componentModel).createExecutor(componentModel, params);
   }
 
   private ObjectBuilder createFieldParameterGroupBuilder(ParameterGroupDescriptor groupDescriptor,

@@ -371,11 +371,10 @@ public class MuleExtensionUtils {
    * @param operationModel an {@link OperationModel}
    * @return a {@link ComponentExecutorFactory}
    * @throws IllegalOperationModelDefinitionException if the operation is not properly enriched
-   * @deprecated since 4.2. Use {@link #getCompletableOperationExecutorFactory(ComponentModel)} instead
+   * @deprecated since 4.2. Use {@link #getOperationExecutorFactory(ComponentModel)} instead
    */
   @Deprecated
-  public static <T extends ComponentModel> ComponentExecutorFactory<T> getNonCompletableOperationExecutorFactory(
-                                                                                                                 T operationModel) {
+  public static <T extends ComponentModel> ComponentExecutorFactory<T> getLegacyOperationExecutorFactory(T operationModel) {
     ComponentExecutorFactory executorFactory =
         fromModelProperty(operationModel,
                           ComponentExecutorModelProperty.class,
@@ -388,9 +387,9 @@ public class MuleExtensionUtils {
     return new ReactiveOperationExecutorFactoryWrapper(executorFactory, createInterceptors(operationModel));
   }
 
-  public static <T extends ComponentModel> CompletableComponentExecutorFactory<T> getCompletableOperationExecutorFactory(T operationModel) {
+  public static <T extends ComponentModel> CompletableComponentExecutorFactory<T> getOperationExecutorFactory(T operationModel) {
     if (operationModel.getModelProperty(ComponentExecutorModelProperty.class).isPresent()) {
-      return new ComponentExecutorCompletableAdapterFactory<>(getNonCompletableOperationExecutorFactory(operationModel));
+      return new ComponentExecutorCompletableAdapterFactory<>(getLegacyOperationExecutorFactory(operationModel));
     }
 
     CompletableComponentExecutorFactory executorFactory =

@@ -6,8 +6,18 @@
  */
 package org.mule.runtime.module.extension.internal.runtime.execution.deprecated;
 
+import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.disposeIfNeeded;
+import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.initialiseIfNeeded;
+import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.startIfNeeded;
+import static org.mule.runtime.core.api.lifecycle.LifecycleUtils.stopIfNeeded;
+import static org.slf4j.LoggerFactory.getLogger;
 import static reactor.core.publisher.Mono.from;
+import org.mule.runtime.api.exception.MuleException;
+import org.mule.runtime.api.lifecycle.InitialisationException;
+import org.mule.runtime.api.lifecycle.Lifecycle;
 import org.mule.runtime.api.meta.model.ComponentModel;
+import org.mule.runtime.core.api.MuleContext;
+import org.mule.runtime.core.api.context.MuleContextAware;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutor;
 import org.mule.runtime.extension.api.runtime.operation.CompletableComponentExecutorFactory;
 import org.mule.runtime.extension.api.runtime.operation.ComponentExecutor;
@@ -16,8 +26,12 @@ import org.mule.runtime.extension.api.runtime.operation.ExecutionContext;
 
 import java.util.Map;
 
+import org.slf4j.Logger;
+
 public class ComponentExecutorCompletableAdapterFactory<T extends ComponentModel>
     implements CompletableComponentExecutorFactory<T> {
+
+  private static final Logger LOGGER = getLogger(ComponentExecutorCompletableAdapterFactory.class);
 
   private final ComponentExecutorFactory<T> delegate;
 
@@ -30,9 +44,11 @@ public class ComponentExecutorCompletableAdapterFactory<T extends ComponentModel
     return new ComponentExecutorCompletableAdapter(delegate.createExecutor(componentModel, parameters));
   }
 
-  private static class ComponentExecutorCompletableAdapter<T extends ComponentModel> implements CompletableComponentExecutor<T> {
+  private static class ComponentExecutorCompletableAdapter<T extends ComponentModel> implements CompletableComponentExecutor<T>,
+      Lifecycle, MuleContextAware {
 
     private final ComponentExecutor<T> delegate;
+    private MuleContext muleContext;
 
     public ComponentExecutorCompletableAdapter(ComponentExecutor<T> delegate) {
       this.delegate = delegate;
@@ -41,6 +57,31 @@ public class ComponentExecutorCompletableAdapterFactory<T extends ComponentModel
     @Override
     public void execute(ExecutionContext<T> executionContext, ExecutorCallback callback) {
       from(delegate.execute(executionContext)).subscribe(callback::complete, callback::error);
+    }
+
+    @Override
+    public void initialise() throws InitialisationException {
+      initialiseIfNeeded(delegate, true, muleContext);
+    }
+
+    @Override
+    public void start() throws MuleException {
+      startIfNeeded(delegate);
+    }
+
+    @Override
+    public void stop() throws MuleException {
+      stopIfNeeded(delegate);
+    }
+
+    @Override
+    public void dispose() {
+      disposeIfNeeded(delegate, LOGGER);
+    }
+
+    @Override
+    public void setMuleContext(MuleContext muleContext) {
+      this.muleContext = muleContext;
     }
   }
 }
