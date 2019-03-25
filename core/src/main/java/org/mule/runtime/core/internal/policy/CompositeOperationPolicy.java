@@ -22,7 +22,6 @@ import org.mule.runtime.core.api.processor.ReactiveProcessor;
 import org.mule.runtime.core.internal.exception.MessagingException;
 import org.mule.runtime.core.internal.message.InternalEvent;
 import org.mule.runtime.core.internal.rx.FluxSinkRecorder;
-import org.mule.runtime.core.internal.util.rx.MonoSinkWrapper;
 import org.mule.runtime.core.internal.util.rx.RoundRobinFluxSinkSupplier;
 import org.mule.runtime.core.privileged.event.BaseEventContext;
 
@@ -38,6 +37,7 @@ import java.util.function.Supplier;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
+import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
 
 /**
@@ -102,8 +102,8 @@ public class CompositeOperationPolicy
                 if (!childContext.isComplete()) {
                   childContext.success(result);
                 }
-                //((MonoSink<CoreEvent>) ((InternalEvent) result).getInternalParameter(POLICY_OPERATION_CALLER_SINK))
-                //    .success(quickCopy(childContext.getParentContext().get(), result));
+                ((MonoSink<CoreEvent>) ((InternalEvent) result).getInternalParameter(POLICY_OPERATION_CALLER_SINK))
+                    .success(quickCopy(childContext.getParentContext().get(), result));
               })
               .onErrorContinue(MessagingException.class, (t, e) -> {
                 final MessagingException me = (MessagingException) t;
@@ -128,7 +128,7 @@ public class CompositeOperationPolicy
   @Override
   protected Publisher<CoreEvent> applyNextOperation(Publisher<CoreEvent> eventPub) {
     return Flux.from(eventPub)
-        .doOnNext(event -> {
+        .flatMap(event -> {
           Map<String, Object> parametersMap = new HashMap<>();
           OperationParametersProcessor parametersProcessor =
               ((InternalEvent) event).getInternalParameter(POLICY_OPERATION_PARAMETERS_PROCESSOR);
@@ -140,19 +140,9 @@ public class CompositeOperationPolicy
 
           OperationExecutionFunction operationExecutionFunction =
               ((InternalEvent) event).getInternalParameter(POLICY_OPERATION_OPERATION_EXEC_FUNCTION);
-
-          MonoSink<CoreEvent> callerSink = ((InternalEvent) event).getInternalParameter(POLICY_OPERATION_CALLER_SINK);
-          MonoSink<CoreEvent> sink = new MonoSinkWrapper<CoreEvent>(callerSink) {
-
-            @Override
-            public void success(CoreEvent response) {
-              response = quickCopy(response, singletonMap(POLICY_OPERATION_NEXT_OPERATION_RESPONSE, response));
-              delegate.success(response);
-            }
-          };
-
-          operationExecutionFunction.execute(parametersMap, event, sink);
-        });
+          return Mono.<CoreEvent>create(sink -> operationExecutionFunction.execute(parametersMap, event, sink));
+        })
+        .map(response -> quickCopy(response, singletonMap(POLICY_OPERATION_NEXT_OPERATION_RESPONSE, response)));
   }
 
   /**
